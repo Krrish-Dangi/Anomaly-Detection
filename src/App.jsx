@@ -1,0 +1,23 @@
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import LandingPage from './pages/LandingPage';
+import Dashboard from './pages/Dashboard';
+import VideoAnalysis from './pages/VideoAnalysis';
+import EventHistory from './pages/EventHistory';
+import Settings from './pages/Settings';
+
+function App() {
+  return (
+    <Router>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/dashboard/video-analysis" element={<VideoAnalysis />} />
+        <Route path="/dashboard/event-history" element={<EventHistory />} />
+        <Route path="/dashboard/settings" element={<Settings />} />
+      </Routes>
+    </Router>
+  );
+}
+
+export default App;
+

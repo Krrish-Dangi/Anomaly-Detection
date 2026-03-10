@@ -1,0 +1,124 @@
+.how-it-works {
+    position: relative;
+}
+
+.how-it-works-grid {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0;
+    position: relative;
+}
+
+/* Step */
+.how-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    flex: 1;
+    max-width: 250px;
+    position: relative;
+    padding: 0 16px;
+}
+
+/* Icon circle */
+.how-step-icon {
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    background: var(--accent-dim);
+    border: 2px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    margin-bottom: 20px;
+    position: relative;
+    z-index: 2;
+    transition: var(--transition);
+}
+
+.how-step:hover .how-step-icon {
+    border-color: var(--accent);
+    background: rgba(0, 212, 255, 0.15);
+    box-shadow: 0 0 30px rgba(0, 212, 255, 0.25);
+    transform: scale(1.08);
+}
+
+/* Connector line */
+.how-step-connector {
+    position: absolute;
+    top: 34px;
+    left: calc(50% + 40px);
+    width: calc(100% - 80px);
+    height: 2px;
+    z-index: 1;
+}
+
+.how-step-connector::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), rgba(0, 212, 255, 0.2));
+    border-radius: 1px;
+}
+
+/* Dashes */
+.how-step-connector::after {
+    content: '';
+    position: absolute;
+    top: -3px;
+    right: -4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.how-step:last-child .how-step-connector {
+    display: none;
+}
+
+.how-step-number {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+}
+
+.how-step-title {
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+}
+
+.how-step-desc {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .how-it-works-grid {
+        flex-direction: column;
+        align-items: center;
+        gap: 40px;
+    }
+
+    .how-step-connector {
+        display: none;
+    }
+
+    .how-step {
+        max-width: 300px;
+    }
+}
