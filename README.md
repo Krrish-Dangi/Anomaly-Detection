@@ -137,5 +137,3 @@ Anomaly-Detection/
 This project is for educational purposes as part of a DTI (Design Thinking & Innovation) project.
 
 ---
-
-**Made with ❤️ by [Krrish Dangi](https://github.com/Krrish-Dangi)**
