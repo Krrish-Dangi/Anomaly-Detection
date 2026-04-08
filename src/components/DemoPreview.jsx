@@ -14,7 +14,7 @@ const DemoPreview = () => {
                             <span className="demo-window-dot red"></span>
                             <span className="demo-window-dot yellow"></span>
                             <span className="demo-window-dot green"></span>
-                            <span className="demo-window-title">AI Surveillance — Live Preview</span>
+                            <span className="demo-window-title">SentinelAI — Live Preview</span>
                         </div>
 
                         <div style={{ position: 'relative' }}>

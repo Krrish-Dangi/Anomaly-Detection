@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import heroImg from '../assets/hero-camera.png';
+import Aurora from './Aurora';
 import './Hero.css';
 
 const Hero = () => {
@@ -14,20 +14,24 @@ const Hero = () => {
 
     return (
         <section className="hero" id="home">
+            {/* Aurora Background */}
+            <div className="hero-aurora">
+                <Aurora
+                    colorStops={['#00d4ff', '#00f5d4', '#0077ff']}
+                    amplitude={1.2}
+                    blend={0.6}
+                    speed={0.8}
+                />
+            </div>
+
             <div className="hero-inner">
-                {/* Left Content */}
                 <div className="hero-content">
-                    <div className="hero-badge">
-                        <span className="hero-badge-dot"></span>
-                        AI-Powered Security
-                    </div>
                     <h1 className="hero-title">
-                        AI-Powered Smart<br />
-                        <span>Retail Surveillance</span>
+                        Sentinel<span>AI</span>
                     </h1>
+                    <p className="hero-tagline">Anomaly Detector</p>
                     <p className="hero-subtitle">
-                        Real-time detection, behavioral analysis, and intelligent alerts for secure retail
-                        environments. Unlock the power of advanced AI for asset defense.
+                        Intelligent real-time surveillance powered by AI. Detect anomalies and threats before they happen.
                     </p>
                     <div className="hero-buttons">
                         <button className="btn-primary" onClick={() => navigate('/dashboard')}>
@@ -42,28 +46,6 @@ const Hero = () => {
                             </svg>
                             View Demo
                         </button>
-                    </div>
-                </div>
-
-                {/* Right Visual */}
-                <div className="hero-visual">
-                    <div className="hero-image-wrapper">
-                        <div className="hero-image-glow"></div>
-                        <img src={heroImg} alt="AI Surveillance Camera" />
-                        <div className="hero-stats">
-                            <div className="hero-stat">
-                                <div className="hero-stat-value">99.5%</div>
-                                <div className="hero-stat-label">Accuracy</div>
-                            </div>
-                            <div className="hero-stat">
-                                <div className="hero-stat-value">&lt;0.3s</div>
-                                <div className="hero-stat-label">Latency</div>
-                            </div>
-                            <div className="hero-stat">
-                                <div className="hero-stat-value">24/7</div>
-                                <div className="hero-stat-label">Monitoring</div>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </div>

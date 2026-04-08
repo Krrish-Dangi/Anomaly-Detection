@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import './Navbar.css';
+import logoImg from '../assets/logo.png';
 
 const navItems = [
     { label: 'Home', href: '#home' },
@@ -19,18 +20,31 @@ const Navbar = ({ onSignIn, onSignUp }) => {
     // Scroll spy — detect which section is in view
     useEffect(() => {
         const handleScroll = () => {
-            setScrolled(window.scrollY > 50);
+            // Only show dark navbar bg once the pull-out content covers the hero
+            const pullout = document.querySelector('.content-pullout');
+            if (pullout) {
+                const pulloutRect = pullout.getBoundingClientRect();
+                setScrolled(pulloutRect.top <= 80);
+            } else {
+                setScrolled(window.scrollY > 50);
+            }
 
             const sectionIds = navItems.map(item => item.href.replace('#', ''));
             let currentIndex = 0;
 
-            for (let i = sectionIds.length - 1; i >= 0; i--) {
-                const section = document.getElementById(sectionIds[i]);
-                if (section) {
-                    const rect = section.getBoundingClientRect();
-                    if (rect.top <= 150) {
-                        currentIndex = i;
-                        break;
+            // If scrolled to the bottom of the page, activate the last nav item
+            const isAtBottom = (window.innerHeight + window.scrollY) >= (document.documentElement.scrollHeight - 50);
+            if (isAtBottom) {
+                currentIndex = navItems.length - 1;
+            } else {
+                for (let i = sectionIds.length - 1; i >= 0; i--) {
+                    const section = document.getElementById(sectionIds[i]);
+                    if (section) {
+                        const rect = section.getBoundingClientRect();
+                        if (rect.top <= 150) {
+                            currentIndex = i;
+                            break;
+                        }
                     }
                 }
             }
@@ -65,10 +79,7 @@ const Navbar = ({ onSignIn, onSignUp }) => {
                 {/* Logo */}
                 <a href="#" className="navbar-logo">
                     <div className="navbar-logo-icon">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                            <circle cx="12" cy="13" r="4" />
-                        </svg>
+                        <img src={logoImg} alt="SentinelAI Logo" className="navbar-logo-img" />
                     </div>
                 </a>
 
@@ -81,7 +92,17 @@ const Navbar = ({ onSignIn, onSignUp }) => {
                             key={item.href}
                             href={item.href}
                             className={`navbar-link ${idx === activeIndex ? 'active' : ''}`}
-                            onClick={() => setMobileOpen(false)}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                setMobileOpen(false);
+                                const targetId = item.href.replace('#', '');
+                                if (targetId === 'home') {
+                                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                                } else {
+                                    const el = document.getElementById(targetId);
+                                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                                }
+                            }}
                         >
                             {item.label}
                         </a>

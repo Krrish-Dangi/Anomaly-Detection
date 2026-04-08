@@ -3,7 +3,7 @@
 /* ===== CSS Variables (Dark Mode - Default) ===== */
 :root,
 [data-theme="dark"] {
-  --bg-primary: #0a0e17;
+  --bg-primary: #050507;
   --bg-secondary: #0d1321;
   --bg-card: rgba(13, 19, 33, 0.7);
   --bg-card-hover: rgba(13, 19, 33, 0.9);
@@ -73,21 +73,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ===== Background Grid Pattern ===== */
-body::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-image:
-    linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: 60px 60px;
-  pointer-events: none;
-  z-index: 0;
-}
+/* Grid pattern removed — solid background only */
 
 #root {
   position: relative;
@@ -208,4 +194,22 @@ button {
 
 .fade-in-up {
   animation: fadeInUp 0.6s ease forwards;
+}
+
+/* ===== Pull-Out Layout ===== */
+.hero-sticky-wrapper {
+  position: sticky;
+  top: 0;
+  z-index: 0;
+  min-height: 100vh;
+}
+
+.content-pullout {
+  position: relative;
+  z-index: 2;
+  background: #0a0d14;
+  border-radius: 32px 32px 0 0;
+  margin-top: -40px;
+  box-shadow: 0 -10px 60px rgba(0, 0, 0, 0.6), 0 -2px 20px rgba(0, 212, 255, 0.06);
+  overflow: hidden;
 }

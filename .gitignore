@@ -22,3 +22,59 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# ----- Python -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Jupyter
+.ipynb_checkpoints
+
+# Pytest
+.pytest_cache/
+
+# ----- Project Specific -----
+# DB
+*.sqlite3
+*.db
+backend/data/*.db
+
+# Uploads and Media
+backend/data/media/*
+!backend/data/media/.gitkeep
+backend/data/uploads/*
+!backend/data/uploads/.gitkeep
+
+# AI Weights
+backend/ai/weights/*.pth
+backend/ai/weights/*.pt
+backend/ai/weights/*.onnx
