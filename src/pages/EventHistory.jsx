@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { gsap } from 'gsap';
 import DashboardLayout from '../components/DashboardLayout';
 import '../pages/Dashboard.css';
@@ -25,12 +26,21 @@ const chartData = {
     values: [20, 28, 45, 60, 52, 68, 55, 92],
 };
 
+const LockIcon = () => (
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+);
+
 const EventHistory = () => {
+    const navigate = useNavigate();
     const canvasRef = useRef(null);
     const [dateRange, setDateRange] = useState('last7');
     const [eventType, setEventType] = useState('all');
     const [camera, setCamera] = useState('all');
     const [confidence, setConfidence] = useState(80);
+    const isLocked = true; // Will be replaced with actual auth state later
 
     // Draw chart
     useEffect(() => {
@@ -152,97 +162,131 @@ const EventHistory = () => {
 
     return (
         <DashboardLayout title="AI History & Incident Analysis" subtitle="Real-time monitoring and threat detection active.">
+            <div className={`eh-content-wrapper${isLocked ? ' eh-locked' : ''}`}>
 
-            {/* === Filters === */}
-            <div className="eh-filters">
-                <h3 className="eh-filters-title">Event Filters</h3>
-                <div className="eh-filters-row">
-                    <div className="eh-filter-group">
-                        <label>Date Range</label>
-                        <select value={dateRange} onChange={e => setDateRange(e.target.value)}>
-                            <option value="last7">Last 7 Days</option>
-                            <option value="last30">Last 30 Days</option>
-                            <option value="last90">Last 90 Days</option>
-                        </select>
-                    </div>
-                    <div className="eh-filter-group">
-                        <label>Event Type</label>
-                        <select value={eventType} onChange={e => setEventType(e.target.value)}>
-                            <option value="all">All Events</option>
-                            <option value="Shelf Tampering">Shelf Tampering</option>
-                            <option value="Loitering">Loitering</option>
-                        </select>
-                    </div>
-                    <div className="eh-filter-group">
-                        <label>Camera</label>
-                        <select value={camera} onChange={e => setCamera(e.target.value)}>
-                            <option value="all">All Cameras</option>
-                            <option value="CAM-01">CAM-01</option>
-                            <option value="CAM-02">CAM-02</option>
-                            <option value="CAM-03">CAM-03</option>
-                            <option value="CAM-04">CAM-04</option>
-                        </select>
-                    </div>
-                    <div className="eh-filter-group eh-filter-slider">
-                        <label>Confidence Level: {confidence}%+</label>
-                        <input
-                            type="range" min="0" max="100"
-                            value={confidence}
-                            onChange={e => setConfidence(Number(e.target.value))}
-                        />
-                    </div>
-                </div>
-            </div>
-
-            {/* === Chart + Stats Row === */}
-            <div className="eh-analytics-row">
-                <div className="eh-chart-section">
-                    <h3>Suspicious Events Over Time</h3>
-                    <div className="eh-chart-container">
-                        <canvas ref={canvasRef} />
+                {/* === Filters === */}
+                <div className="eh-filters">
+                    <h3 className="eh-filters-title">Event Filters</h3>
+                    <div className="eh-filters-row">
+                        <div className="eh-filter-group">
+                            <label>Date Range</label>
+                            <select value={dateRange} onChange={e => setDateRange(e.target.value)}>
+                                <option value="last7">Last 7 Days</option>
+                                <option value="last30">Last 30 Days</option>
+                                <option value="last90">Last 90 Days</option>
+                            </select>
+                        </div>
+                        <div className="eh-filter-group">
+                            <label>Event Type</label>
+                            <select value={eventType} onChange={e => setEventType(e.target.value)}>
+                                <option value="all">All Events</option>
+                                <option value="Shelf Tampering">Shelf Tampering</option>
+                                <option value="Loitering">Loitering</option>
+                            </select>
+                        </div>
+                        <div className="eh-filter-group">
+                            <label>Camera</label>
+                            <select value={camera} onChange={e => setCamera(e.target.value)}>
+                                <option value="all">All Cameras</option>
+                                <option value="CAM-01">CAM-01</option>
+                                <option value="CAM-02">CAM-02</option>
+                                <option value="CAM-03">CAM-03</option>
+                                <option value="CAM-04">CAM-04</option>
+                            </select>
+                        </div>
+                        <div className="eh-filter-group eh-filter-slider">
+                            <label>Confidence Level: {confidence}%+</label>
+                            <input
+                                type="range" min="0" max="100"
+                                value={confidence}
+                                onChange={e => setConfidence(Number(e.target.value))}
+                            />
+                        </div>
                     </div>
                 </div>
 
-                <div className="eh-stats-panel">
-                    <h3>Incident Statistics</h3>
-                    <div className="eh-stat-card">
-                        <span className="eh-stat-label">Total Incidents (Filtered)</span>
-                        <span className="eh-stat-value">{totalFiltered}</span>
+                {/* === Chart + Stats Row === */}
+                <div className="eh-analytics-row">
+                    <div className="eh-chart-section">
+                        <h3>Suspicious Events Over Time</h3>
+                        <div className="eh-chart-container">
+                            <canvas ref={canvasRef} />
+                        </div>
                     </div>
-                    <div className="eh-stat-card">
-                        <span className="eh-stat-label">Most Frequent Event</span>
-                        <span className="eh-stat-value eh-stat-text">{mostFrequentEvent}</span>
+
+                    <div className="eh-stats-panel">
+                        <h3>Incident Statistics</h3>
+                        <div className="eh-stat-card">
+                            <span className="eh-stat-label">Total Incidents (Filtered)</span>
+                            <span className="eh-stat-value">{totalFiltered}</span>
+                        </div>
+                        <div className="eh-stat-card">
+                            <span className="eh-stat-label">Most Frequent Event</span>
+                            <span className="eh-stat-value eh-stat-text">{mostFrequentEvent}</span>
+                        </div>
+                        <div className="eh-stat-card">
+                            <span className="eh-stat-label">Avg Confidence</span>
+                            <span className="eh-stat-value">{avgConf}%</span>
+                        </div>
                     </div>
-                    <div className="eh-stat-card">
-                        <span className="eh-stat-label">Avg Confidence</span>
-                        <span className="eh-stat-value">{avgConf}%</span>
-                    </div>
+                </div>
+
+                {/* === Incident Grid === */}
+                <h3 className="eh-grid-title">Incident Event Grid</h3>
+                <div className="eh-incidents-grid">
+                    {filtered.map((item, i) => (
+                        <div className="eh-incident-card" key={i}>
+                            <div className="eh-incident-thumb">
+                                <img src={thumbs[item.thumb]} alt={item.type} />
+                            </div>
+                            <div className="eh-incident-info">
+                                <h4>{item.type}</h4>
+                                <p>Camera ID: <strong>{item.camera}</strong></p>
+                                <p>{item.date}</p>
+                            </div>
+                            <div className="eh-incident-actions">
+                                <span className="eh-incident-confidence">Confidence: {item.confidence}%</span>
+                                <button className="eh-view-clip-btn">View Clip</button>
+                            </div>
+                        </div>
+                    ))}
+                    {filtered.length === 0 && (
+                        <div className="eh-no-results">No incidents match your filters.</div>
+                    )}
                 </div>
             </div>
 
-            {/* === Incident Grid === */}
-            <h3 className="eh-grid-title">Incident Event Grid</h3>
-            <div className="eh-incidents-grid">
-                {filtered.map((item, i) => (
-                    <div className="eh-incident-card" key={i}>
-                        <div className="eh-incident-thumb">
-                            <img src={thumbs[item.thumb]} alt={item.type} />
+            {/* === Lock Overlay === */}
+            {isLocked && (
+                <div className="eh-lock-overlay">
+                    <div className="eh-lock-card">
+                        <div className="eh-lock-icon-ring">
+                            <LockIcon />
                         </div>
-                        <div className="eh-incident-info">
-                            <h4>{item.type}</h4>
-                            <p>Camera ID: <strong>{item.camera}</strong></p>
-                            <p>{item.date}</p>
+                        <h2 className="eh-lock-title">Event History is Locked</h2>
+                        <p className="eh-lock-subtitle">
+                            Access detailed incident logs, analytics, and video clips by creating an account.
+                        </p>
+                        <div className="eh-lock-actions">
+                            <button
+                                className="eh-lock-btn eh-lock-btn-primary"
+                                onClick={() => navigate('/?auth=signin')}
+                            >
+                                Sign In
+                            </button>
+                            <button
+                                className="eh-lock-btn eh-lock-btn-secondary"
+                                onClick={() => navigate('/?auth=signup')}
+                            >
+                                Create Account
+                            </button>
                         </div>
-                        <div className="eh-incident-actions">
-                            <span className="eh-incident-confidence">Confidence: {item.confidence}%</span>
-                            <button className="eh-view-clip-btn">View Clip</button>
-                        </div>
+                        <p className="eh-lock-footer-text">
+                            Unlock full surveillance insights in seconds.
+                        </p>
                     </div>
-                ))}
-                {filtered.length === 0 && (
-                    <div className="eh-no-results">No incidents match your filters.</div>
-                )}
-            </div>
+                </div>
+            )}
 
         </DashboardLayout>
     );

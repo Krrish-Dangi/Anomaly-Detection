@@ -1,6 +1,7 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import './DashboardLayout.css';
 import logoImg from '../assets/logo.png';
+import ParticlesBg from './ParticlesBg';
 
 const navItems = [
     {
@@ -87,6 +88,7 @@ const DashboardLayout = ({ children, title, subtitle }) => {
 
             {/* Main */}
             <main className="dash-main">
+                <ParticlesBg quantity={50} ease={80} color="#00d4ff" staticity={30} />
                 <header className="dash-header">
                     <div>
                         <h1 className="dash-title">{title || 'Dashboard'}</h1>

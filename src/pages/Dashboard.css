@@ -1,7 +1,8 @@
 /* ===== Dashboard Layout ===== */
 .dash-layout {
     display: flex;
-    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
     background: var(--bg-primary);
 }
 
@@ -169,6 +170,9 @@
     margin-left: 240px;
     padding: 28px 32px;
     overflow-y: auto;
+    overflow-x: hidden;
+    height: 100vh;
+    position: relative;
 }
 
 /* Header */

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import Navbar from '../components/Navbar';
@@ -13,8 +14,20 @@ import ParticlesBg from '../components/ParticlesBg';
 gsap.registerPlugin(ScrollTrigger);
 
 function LandingPage() {
+    const [searchParams, setSearchParams] = useSearchParams();
     const [authOpen, setAuthOpen] = useState(false);
     const [authMode, setAuthMode] = useState('signin');
+
+    // Auto-open auth modal if ?auth=signin or ?auth=signup is in the URL
+    useEffect(() => {
+        const authParam = searchParams.get('auth');
+        if (authParam === 'signin' || authParam === 'signup') {
+            setAuthMode(authParam);
+            setAuthOpen(true);
+            // Clean up the URL param after opening
+            setSearchParams({}, { replace: true });
+        }
+    }, [searchParams, setSearchParams]);
 
     const openSignIn = () => { setAuthMode('signin'); setAuthOpen(true); };
     const openSignUp = () => { setAuthMode('signup'); setAuthOpen(true); };

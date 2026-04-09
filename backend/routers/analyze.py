@@ -274,15 +274,16 @@ def _process_with_model(job_id, video_path, detector, total_frames, fps, width, 
 
     total_clips = len(clips)
 
-    # Initialize HOG person detector and tracker
+    # Initialize HOG person detector for counting
     hog = cv2.HOGDescriptor()
     hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
-    tracker = SimplePersonTracker()
+    max_concurrent_people = 0
 
     # Event consolidation state
     current_event = None
     concluded_events = []
     all_logs = []
+    unique_event_types = set()
 
     _push_event(job_id, "progress", {"total_clips": total_clips, "processed": 0})
 
@@ -300,35 +301,22 @@ def _process_with_model(job_id, video_path, detector, total_frames, fps, width, 
             timestamp_sec = start_frame / fps if fps > 0 else 0
             video_progress = (start_frame + CLIP_LENGTH) / total_frames if total_frames > 0 else 0
 
-            # ── 2. Person detection on middle frame ──
+            # ── 2. Person count via HOG (no bounding boxes sent) ──
             mid_idx = min(start_frame + CLIP_LENGTH // 2, len(raw_frames) - 1)
             det_frame = cv2.resize(raw_frames[mid_idx], (640, 480))
             try:
                 rects, _ = hog.detectMultiScale(
                     det_frame, winStride=(8, 8), padding=(4, 4), scale=1.05
                 )
+                people_in_frame = len(rects)
             except Exception:
-                rects = []
-
-            det_bboxes = []
-            for (rx, ry, rw, rh) in rects:
-                det_bboxes.append({
-                    'x': round(rx / 640 * 100, 1),
-                    'y': round(ry / 480 * 100, 1),
-                    'w': round(rw / 640 * 100, 1),
-                    'h': round(rh / 480 * 100, 1),
-                })
-
-            tracked = tracker.update(det_bboxes, mid_idx)
-            _push_event(job_id, "persons", {
-                "frame": mid_idx,
-                "timestamp_sec": round(mid_idx / fps, 2),
-                "persons": tracked,
-            })
+                people_in_frame = 0
+            max_concurrent_people = max(max_concurrent_people, people_in_frame)
 
             # ── 3. Event consolidation ──
             if class_name != "Normal" and conf >= 75:
                 frontend_type = UCF_TO_FRONTEND_EVENT.get(class_name, "SuspiciousBehavior")
+                unique_event_types.add(class_name)
                 if current_event and current_event['class_name'] == class_name:
                     # Extend existing event
                     current_event['end_frame'] = start_frame + CLIP_LENGTH
@@ -356,15 +344,15 @@ def _process_with_model(job_id, video_path, detector, total_frames, fps, width, 
                     concluded_events.append(current_event)
                     current_event = None
 
-            # ── 4. Progress + stats ──
+            # ── 3. Progress + stats ──
             _push_event(job_id, "progress", {
                 "total_clips": total_clips,
                 "processed": idx + 1,
                 "video_progress": round(video_progress * 100, 1),
             })
             _push_event(job_id, "stats", {
-                "people_detected": tracker.unique_count,
-                "objects_detected": tracker.unique_count + len(concluded_events) * 2,
+                "people_detected": max_concurrent_people,
+                "objects_detected": len(unique_event_types),
                 "suspicious_events": len(concluded_events) + (1 if current_event else 0),
             })
 
@@ -389,13 +377,12 @@ def _process_with_model(job_id, video_path, detector, total_frames, fps, width, 
     # Update DB
     job.status = "done"
     job.completed_at = datetime.now(timezone.utc)
-    job.people_detected = tracker.unique_count
-    job.objects_detected = tracker.unique_count + len(concluded_events) * 2
+    job.people_detected = max_concurrent_people
+    job.objects_detected = len(unique_event_types)
     job.suspicious_events = total_suspicious
     job.detection_logs = all_logs
 
     for evt in concluded_events:
-        start_sec = evt['start_frame'] / fps if fps > 0 else 0
         event = Event(
             event_id=evt['event_id'],
             type=evt['frontend_type'],
@@ -410,8 +397,8 @@ def _process_with_model(job_id, video_path, detector, total_frames, fps, width, 
     db.commit()
 
     _push_event(job_id, "complete", {
-        "people_detected": tracker.unique_count,
-        "objects_detected": tracker.unique_count + len(concluded_events) * 2,
+        "people_detected": max_concurrent_people,
+        "objects_detected": len(unique_event_types),
         "suspicious_events": total_suspicious,
     })
     _stream_done[job_id] = True
@@ -453,6 +440,7 @@ def _process_mock(job_id, video_path, total_frames, fps, width, height, db, job)
     current_event = None
     concluded_events = []
     all_logs = []
+    unique_event_types = set()
 
     _push_event(job_id, "progress", {"total_clips": num_clips, "processed": 0})
 
@@ -461,23 +449,7 @@ def _process_mock(job_id, video_path, total_frames, fps, width, height, db, job)
         timestamp_sec = start_frame / fps if fps > 0 else 0
         video_progress = (start_frame + CLIP_LENGTH) / total_frames if total_frames > 0 else 0
 
-        # Update and send person positions
-        persons_now = []
-        for p in mock_persons:
-            if p['appear'] <= idx <= p['disappear']:
-                p['x'] = max(5, min(85, p['x'] + p['vx'] + random.uniform(-0.3, 0.3)))
-                p['y'] = max(5, min(70, p['y'] + p['vy'] + random.uniform(-0.2, 0.2)))
-                persons_now.append({
-                    'id': p['id'],
-                    'bbox': {'x': round(p['x'], 1), 'y': round(p['y'], 1),
-                             'w': round(p['w'], 1), 'h': round(p['h'], 1)},
-                })
 
-        _push_event(job_id, "persons", {
-            "frame": start_frame,
-            "timestamp_sec": round(timestamp_sec, 2),
-            "persons": persons_now,
-        })
 
         # Check if this clip is in an anomaly block
         is_anomaly = False
@@ -491,6 +463,7 @@ def _process_mock(job_id, video_path, total_frames, fps, width, height, db, job)
         if is_anomaly:
             conf = random.randint(78, 98)
             frontend_type = UCF_TO_FRONTEND_EVENT.get(anomaly_class, "SuspiciousBehavior")
+            unique_event_types.add(anomaly_class)
             if current_event and current_event['class_name'] == anomaly_class:
                 current_event['end_frame'] = start_frame + CLIP_LENGTH
                 current_event['peak_conf'] = max(current_event['peak_conf'], conf)
@@ -522,7 +495,7 @@ def _process_mock(job_id, video_path, total_frames, fps, width, height, db, job)
         })
         _push_event(job_id, "stats", {
             "people_detected": num_persons,
-            "objects_detected": num_persons + len(concluded_events) * 2,
+            "objects_detected": len(unique_event_types),
             "suspicious_events": len(concluded_events) + (1 if current_event else 0),
         })
 
@@ -546,7 +519,7 @@ def _process_mock(job_id, video_path, total_frames, fps, width, height, db, job)
     job.status = "done"
     job.completed_at = datetime.now(timezone.utc)
     job.people_detected = num_persons
-    job.objects_detected = num_persons + total_suspicious * 2
+    job.objects_detected = len(unique_event_types)
     job.suspicious_events = total_suspicious
     job.detection_logs = all_logs
 
@@ -566,7 +539,7 @@ def _process_mock(job_id, video_path, total_frames, fps, width, height, db, job)
 
     _push_event(job_id, "complete", {
         "people_detected": num_persons,
-        "objects_detected": num_persons + total_suspicious * 2,
+        "objects_detected": len(unique_event_types),
         "suspicious_events": total_suspicious,
     })
     _stream_done[job_id] = True

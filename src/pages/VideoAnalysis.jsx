@@ -1,7 +1,20 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { gsap } from 'gsap';
 import DashboardLayout from '../components/DashboardLayout';
 import './VideoAnalysis.css';
+
+// Scroll to top when page mounts
+const useScrollToTop = () => {
+    useLayoutEffect(() => {
+        window.scrollTo(0, 0);
+        const mainEl = document.querySelector('.dash-main');
+        if (mainEl) mainEl.scrollTop = 0;
+        // Fallback: some browsers restore scroll after layout
+        requestAnimationFrame(() => {
+            if (mainEl) mainEl.scrollTop = 0;
+        });
+    }, []);
+};
 
 const API_BASE = 'http://localhost:8000';
 
@@ -15,9 +28,11 @@ const STATUS_LABELS = {
 
 
 
-const CONFIDENCE_THRESHOLD = 75;
+const CONFIDENCE_THRESHOLD = 95;
 
 const VideoAnalysis = () => {
+    useScrollToTop();
+
     // Video playback
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
@@ -25,6 +40,8 @@ const VideoAnalysis = () => {
     const [volume, setVolume] = useState(1);
     const [isMuted, setIsMuted] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [showVolumeSlider, setShowVolumeSlider] = useState(false);
+    const [isSeeking, setIsSeeking] = useState(false);
     const [playbackSpeed, setPlaybackSpeed] = useState(1);
     const videoRef = useRef(null);
     const videoContainerRef = useRef(null);
@@ -248,7 +265,7 @@ const VideoAnalysis = () => {
         }
     };
 
-    const handleFileSelect = async (e) => {
+    const handleFileSelect = (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
@@ -279,7 +296,11 @@ const VideoAnalysis = () => {
         setVideoUrl(localUrl);
 
         setTimeout(() => setUploadSuccess(false), 2500);
-        await startAnalysis(file);
+    };
+
+    const handleAnalyzeClick = () => {
+        if (!selectedFile || isLoading) return;
+        startAnalysis(selectedFile);
     };
 
     const handleUploadClick = () => {
@@ -311,19 +332,55 @@ const VideoAnalysis = () => {
         }
     };
 
-    const handleSeek = (e) => {
+    const handleSeekFromEvent = (e, bar) => {
         if (!videoRef.current || !duration) return;
-        const bar = e.currentTarget;
         const rect = bar.getBoundingClientRect();
         const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
         videoRef.current.currentTime = pct * duration;
         setCurrentTime(pct * duration);
     };
 
+    const handleSeekClick = (e) => {
+        handleSeekFromEvent(e, e.currentTarget);
+    };
+
+    const handleSeekMouseDown = (e) => {
+        e.preventDefault();
+        setIsSeeking(true);
+        const bar = e.currentTarget;
+        handleSeekFromEvent(e, bar);
+
+        const onMouseMove = (ev) => {
+            handleSeekFromEvent(ev, bar);
+        };
+        const onMouseUp = () => {
+            setIsSeeking(false);
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    };
+
     const toggleMute = () => {
         if (!videoRef.current) return;
         videoRef.current.muted = !videoRef.current.muted;
         setIsMuted(videoRef.current.muted);
+    };
+
+    const handleVolumeChange = (e) => {
+        const newVol = parseFloat(e.target.value);
+        setVolume(newVol);
+        if (videoRef.current) {
+            videoRef.current.volume = newVol;
+            if (newVol === 0) {
+                videoRef.current.muted = true;
+                setIsMuted(true);
+            } else if (videoRef.current.muted) {
+                videoRef.current.muted = false;
+                setIsMuted(false);
+            }
+        }
     };
 
     const toggleFullscreen = () => {
@@ -428,7 +485,7 @@ const VideoAnalysis = () => {
                         </div>
                     )}
                 </div>
-                <div className="va-upload-right">
+                <div className="va-upload-center">
                     <button
                         className={`va-upload-btn ${uploadSuccess ? 'va-btn-success' : ''} ${isLoading ? 'va-btn-loading' : ''}`}
                         onClick={handleUploadClick}
@@ -454,6 +511,25 @@ const VideoAnalysis = () => {
                     <span className={`va-upload-text ${uploadSuccess ? 'va-text-success' : ''} ${isFailed ? 'va-text-failed' : ''}`}>
                         {uploadText}
                     </span>
+                </div>
+                <div className="va-upload-right">
+                    <button
+                        className={`va-analyze-btn ${!selectedFile || isLoading ? 'va-analyze-btn-disabled' : ''}`}
+                        onClick={handleAnalyzeClick}
+                        disabled={!selectedFile || isLoading}
+                        title={!selectedFile ? 'Upload a file first' : isLoading ? 'Analyzing...' : 'Start AI Analysis'}
+                    >
+                        {isLoading ? (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="va-spin-icon">
+                                <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                            </svg>
+                        ) : (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <polygon points="5 3 19 12 5 21 5 3" />
+                            </svg>
+                        )}
+                        {isLoading ? 'Analyzing...' : 'Analyze'}
+                    </button>
                 </div>
             </div>
 
@@ -522,23 +598,7 @@ const VideoAnalysis = () => {
                             </div>
                         )}
 
-                        {/* Live person tracking boxes */}
-                        {(isProcessing || isDone) && activePersons.map((person) => (
-                            <div
-                                key={`person-${person.id}`}
-                                className="va-person-track"
-                                style={{
-                                    left: `${person.bbox?.x || 0}%`,
-                                    top: `${person.bbox?.y || 0}%`,
-                                    width: `${person.bbox?.w || 10}%`,
-                                    height: `${person.bbox?.h || 15}%`,
-                                }}
-                            >
-                                <span className="va-person-label">Person {person.id}</span>
-                            </div>
-                        ))}
-
-                        {/* Detection boxes only appear when AI sends them — no placeholders */}
+                        {/* Detection boxes removed — clean video playback */}
 
                         {/* Live monitoring indicator */}
                         {isProcessing && (
@@ -576,7 +636,7 @@ const VideoAnalysis = () => {
                             {formatTime(currentTime)} / {formatTime(duration)}
                         </div>
 
-                        <div className="va-progress-bar" onClick={handleSeek}>
+                        <div className={`va-progress-bar ${isSeeking ? 'va-progress-seeking' : ''}`} onMouseDown={handleSeekMouseDown}>
                             <div className="va-progress-fill" style={{ width: `${progressPct}%` }} />
                             {/* Markers for concluded events on the timeline */}
                             {concludedEvents.map((evt, i) => {
@@ -600,20 +660,46 @@ const VideoAnalysis = () => {
                             {playbackSpeed}x
                         </button>
 
-                        <button className="va-control-btn" onClick={toggleMute} title={isMuted ? 'Unmute' : 'Mute'}>
-                            {isMuted ? (
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                                    <line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" />
-                                </svg>
-                            ) : (
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                                </svg>
+                        <div
+                            className="va-volume-wrapper"
+                            onMouseEnter={() => setShowVolumeSlider(true)}
+                            onMouseLeave={() => setShowVolumeSlider(false)}
+                        >
+                            <button className="va-control-btn" onClick={toggleMute} title={isMuted ? 'Unmute' : 'Mute'}>
+                                {isMuted || volume === 0 ? (
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                                        <line x1="23" y1="9" x2="17" y2="15" /><line x1="17" y1="9" x2="23" y2="15" />
+                                    </svg>
+                                ) : volume < 0.5 ? (
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                                    </svg>
+                                ) : (
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+                                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                                    </svg>
+                                )}
+                            </button>
+                            {showVolumeSlider && (
+                                <div className="va-volume-popup">
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="1"
+                                        step="0.01"
+                                        value={isMuted ? 0 : volume}
+                                        onChange={handleVolumeChange}
+                                        className="va-volume-slider"
+                                        orient="vertical"
+                                    />
+                                    <span className="va-volume-label">{isMuted ? 0 : Math.round(volume * 100)}%</span>
+                                </div>
                             )}
-                        </button>
+                        </div>
 
                         <button className="va-control-btn" onClick={toggleFullscreen} title="Fullscreen">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -710,7 +796,7 @@ const VideoAnalysis = () => {
             {/* ── Stats Row ── */}
             <div className="va-stats-row">
                 <div className="va-stat-card">
-                    <div className="va-stat-label">People Detected</div>
+                    <div className="va-stat-label">Person Counter</div>
                     <div className="va-stat-value">
                         <span className="va-stat-value-num">{stats.people_detected.toLocaleString()}</span>
                     </div>
@@ -722,7 +808,7 @@ const VideoAnalysis = () => {
                     )}
                 </div>
                 <div className="va-stat-card">
-                    <div className="va-stat-label">Objects Detected</div>
+                    <div className="va-stat-label">Event Types</div>
                     <div className="va-stat-value">
                         <span className="va-stat-value-num">{stats.objects_detected.toLocaleString()}</span>
                     </div>

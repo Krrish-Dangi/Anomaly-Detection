@@ -18,16 +18,14 @@ const ClickSpark = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const parent = canvas.parentElement;
-    if (!parent) return;
-
     let resizeTimeout;
 
     const resizeCanvas = () => {
-      const { width, height } = parent.getBoundingClientRect();
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
       }
     };
 
@@ -36,13 +34,11 @@ const ClickSpark = ({
       resizeTimeout = setTimeout(resizeCanvas, 200);
     };
 
-    const ro = new ResizeObserver(handleResize);
-    ro.observe(parent);
-
+    window.addEventListener('resize', handleResize);
     resizeCanvas();
 
     return () => {
-      ro.disconnect();
+      window.removeEventListener('resize', handleResize);
       clearTimeout(resizeTimeout);
     };
   }, []);
@@ -111,11 +107,16 @@ const ClickSpark = ({
   }, [sparkColor, sparkSize, sparkRadius, duration, easeFunc, extraScale]);
 
   const handleClick = e => {
+    // Only show sparks when cursor is the default arrow — skip for pointer/hand (buttons, links, etc.)
+    const computedCursor = window.getComputedStyle(e.target).cursor;
+    if (computedCursor === 'pointer' || computedCursor === 'hand') return;
+
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+
+    // Use clientX/Y directly since canvas is fixed to viewport
+    const x = e.clientX;
+    const y = e.clientY;
 
     const now = performance.now();
     const newSparks = Array.from({ length: sparkCount }, (_, i) => ({
@@ -141,14 +142,15 @@ const ClickSpark = ({
       <canvas
         ref={canvasRef}
         style={{
-          width: '100%',
-          height: '100%',
           display: 'block',
           userSelect: 'none',
-          position: 'absolute',
+          position: 'fixed',
           top: 0,
           left: 0,
-          pointerEvents: 'none'
+          width: '100vw',
+          height: '100vh',
+          pointerEvents: 'none',
+          zIndex: 99999,
         }}
       />
       {children}

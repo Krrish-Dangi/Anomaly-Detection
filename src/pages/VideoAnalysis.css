@@ -16,6 +16,12 @@
     color: var(--text-primary);
 }
 
+.va-upload-center {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
 .va-upload-right {
     display: flex;
     align-items: center;
@@ -40,6 +46,36 @@
     background: rgba(0, 212, 255, 0.15);
     border-color: var(--accent);
     transform: translateY(-1px);
+}
+
+/* Analyze Button */
+.va-analyze-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 22px;
+    border-radius: var(--radius-md);
+    background: linear-gradient(135deg, rgba(0, 212, 255, 0.2), rgba(0, 212, 255, 0.08));
+    border: 1px solid rgba(0, 212, 255, 0.4);
+    color: var(--accent);
+    font-size: 0.85rem;
+    font-weight: 600;
+    font-family: var(--font-family);
+    cursor: pointer;
+    transition: var(--transition);
+    letter-spacing: 0.02em;
+}
+
+.va-analyze-btn:hover:not(:disabled) {
+    background: linear-gradient(135deg, rgba(0, 212, 255, 0.35), rgba(0, 212, 255, 0.15));
+    border-color: var(--accent);
+    transform: translateY(-1px);
+    box-shadow: 0 0 16px rgba(0, 212, 255, 0.25);
+}
+
+.va-analyze-btn-disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
 }
 
 .va-upload-text {
@@ -450,6 +486,109 @@
 
 .va-progress-bar:hover .va-progress-thumb {
     opacity: 1;
+}
+
+/* Timeline dragging state */
+.va-progress-seeking {
+    height: 7px !important;
+}
+
+.va-progress-seeking .va-progress-thumb {
+    opacity: 1 !important;
+    width: 15px;
+    height: 15px;
+    box-shadow: 0 0 12px rgba(0, 212, 255, 0.7);
+}
+
+/* Enlarge grab area for easier dragging */
+.va-progress-bar::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: 0;
+    right: 0;
+    bottom: -8px;
+    z-index: 1;
+}
+
+/* ===== Volume Control ===== */
+.va-volume-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.va-volume-popup {
+    position: absolute;
+    bottom: 42px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 14px 10px 10px;
+    background: rgba(15, 20, 30, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    z-index: 50;
+    animation: va-volume-fade-in 0.15s ease-out;
+}
+
+@keyframes va-volume-fade-in {
+    0% { opacity: 0; transform: translateX(-50%) translateY(4px); }
+    100% { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.va-volume-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    writing-mode: vertical-lr;
+    direction: rtl;
+    width: 5px;
+    height: 90px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+}
+
+.va-volume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent, #00d4ff);
+    box-shadow: 0 0 6px rgba(0, 212, 255, 0.5);
+    cursor: pointer;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+.va-volume-slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent, #00d4ff);
+    box-shadow: 0 0 6px rgba(0, 212, 255, 0.5);
+    cursor: pointer;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+.va-volume-slider::-webkit-slider-runnable-track {
+    background: linear-gradient(to top, var(--accent, #00d4ff), rgba(0, 212, 255, 0.3));
+    border-radius: 3px;
+}
+
+.va-volume-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--text-muted, #8a95a5);
+    font-variant-numeric: tabular-nums;
+    min-width: 28px;
+    text-align: center;
 }
 
 /* Person tracking bounding boxes */

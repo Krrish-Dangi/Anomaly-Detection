@@ -327,3 +327,163 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* ===== Locked Content Wrapper ===== */
+.eh-content-wrapper {
+    position: relative;
+}
+
+.eh-content-wrapper.eh-locked {
+    filter: blur(8px) saturate(0.4);
+    pointer-events: none;
+    user-select: none;
+    opacity: 0.45;
+    transition: filter 0.4s ease, opacity 0.4s ease;
+}
+
+/* ===== Lock Overlay ===== */
+.eh-lock-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 500px;
+}
+
+.eh-lock-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 48px 56px;
+    border-radius: 24px;
+    background: rgba(10, 14, 23, 0.75);
+    border: 1px solid rgba(0, 212, 255, 0.15);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    box-shadow:
+        0 0 60px rgba(0, 212, 255, 0.06),
+        0 24px 80px rgba(0, 0, 0, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    animation: eh-lock-float 4s ease-in-out infinite;
+    max-width: 460px;
+    width: 90%;
+}
+
+@keyframes eh-lock-float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-8px); }
+}
+
+/* Lock Icon Ring */
+.eh-lock-icon-ring {
+    width: 88px;
+    height: 88px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 212, 255, 0.06);
+    border: 2px solid rgba(0, 212, 255, 0.2);
+    margin-bottom: 24px;
+    color: #00d4ff;
+    position: relative;
+    animation: eh-ring-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes eh-ring-pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(0, 212, 255, 0.15);
+        border-color: rgba(0, 212, 255, 0.2);
+    }
+    50% {
+        box-shadow: 0 0 24px 8px rgba(0, 212, 255, 0.1);
+        border-color: rgba(0, 212, 255, 0.35);
+    }
+}
+
+/* Lock Text */
+.eh-lock-title {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 10px;
+    letter-spacing: -0.02em;
+}
+
+.eh-lock-subtitle {
+    font-size: 0.92rem;
+    color: rgba(255, 255, 255, 0.5);
+    line-height: 1.6;
+    margin-bottom: 30px;
+    max-width: 340px;
+}
+
+/* Lock Buttons */
+.eh-lock-actions {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 20px;
+}
+
+.eh-lock-btn {
+    padding: 12px 32px;
+    border-radius: 12px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    font-family: var(--font-family);
+    cursor: pointer;
+    transition: all 0.25s ease;
+    border: none;
+    letter-spacing: 0.01em;
+}
+
+.eh-lock-btn-primary {
+    background: linear-gradient(135deg, #00d4ff, #0090b8);
+    color: #fff;
+    box-shadow: 0 4px 20px rgba(0, 212, 255, 0.3);
+}
+
+.eh-lock-btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(0, 212, 255, 0.4);
+    background: linear-gradient(135deg, #1ae0ff, #00a8d6);
+}
+
+.eh-lock-btn-secondary {
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.eh-lock-btn-secondary:hover {
+    transform: translateY(-2px);
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(0, 212, 255, 0.3);
+    color: #fff;
+}
+
+/* Lock Footer */
+.eh-lock-footer-text {
+    font-size: 0.76rem;
+    color: rgba(255, 255, 255, 0.25);
+    font-style: italic;
+}
+
+/* Responsive lock card */
+@media (max-width: 520px) {
+    .eh-lock-card {
+        padding: 36px 28px;
+    }
+
+    .eh-lock-actions {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .eh-lock-btn {
+        width: 100%;
+    }
+}
