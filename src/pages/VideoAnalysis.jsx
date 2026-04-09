@@ -1,6 +1,8 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { gsap } from 'gsap';
 import DashboardLayout from '../components/DashboardLayout';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import './VideoAnalysis.css';
 
 // Scroll to top when page mounts
@@ -32,6 +34,7 @@ const CONFIDENCE_THRESHOLD = 95;
 
 const VideoAnalysis = () => {
     useScrollToTop();
+    const { user, isAuthenticated } = useAuth();
 
     // Video playback
     const [isPlaying, setIsPlaying] = useState(false);
@@ -123,6 +126,48 @@ const VideoAnalysis = () => {
             gsap.fromTo('.va-stat-value-num', { scale: 1.15 }, { scale: 1, duration: 0.3, ease: 'back.out(1.4)' });
         }
     }, [stats.people_detected, stats.objects_detected, stats.suspicious_events]);
+
+    // Save concluded events to Supabase when analysis completes
+    useEffect(() => {
+        if (jobStatus !== 'done' || !isAuthenticated || !user || concludedEvents.length === 0) return;
+
+        const saveIncidents = async () => {
+            try {
+                const incidents = concludedEvents.map(evt => ({
+                    user_id: user.id,
+                    event_type: evt.type || evt.ucf_class || 'Unknown',
+                    camera_id: 'UPLOAD',
+                    confidence: evt.peak_confidence || 0,
+                    detected_at: new Date().toISOString(),
+                    metadata: {
+                        ucf_class: evt.ucf_class,
+                        start_time: evt.start_time,
+                        end_time: evt.end_time,
+                        start_frame: evt.start_frame,
+                        end_frame: evt.end_frame,
+                        duration_sec: evt.duration_sec,
+                        clip_count: evt.clip_count,
+                        source: 'video_analysis',
+                        file_name: selectedFile?.name || 'unknown',
+                    },
+                }));
+
+                const { error } = await supabase
+                    .from('incidents')
+                    .insert(incidents);
+
+                if (error) {
+                    console.error('Failed to save incidents:', error.message);
+                } else {
+                    console.log(`✓ Saved ${incidents.length} incidents to history`);
+                }
+            } catch (err) {
+                console.error('Error saving incidents:', err);
+            }
+        };
+
+        saveIncidents();
+    }, [jobStatus, concludedEvents, isAuthenticated, user]);
 
     // Connect to SSE stream when we get a job ID
     const connectStream = useCallback((id) => {

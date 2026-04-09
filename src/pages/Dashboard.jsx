@@ -2,22 +2,11 @@ import { useEffect, useRef } from 'react';
 import { gsap } from 'gsap';
 import DashboardLayout from '../components/DashboardLayout';
 import '../pages/Dashboard.css';
-import cam01 from '../assets/cam-01.png';
-import cam02 from '../assets/cam-02.png';
-import cam03 from '../assets/cam-03.png';
-import cam04 from '../assets/cam-04.png';
 
 const statsData = [
-    { label: 'ACTIVE CAMERAS', value: '124', change: '+5%', positive: true },
-    { label: 'THREATS DETECTED', value: '02', change: '-12%', positive: false },
-    { label: 'SYSTEM UPTIME', value: '99.9%', change: '+0.1%', positive: true },
-];
-
-const cameraFeeds = [
-    { id: 'CAM_01', img: cam01 },
-    { id: 'CAM_02', img: cam02 },
-    { id: 'CAM_03', img: cam03 },
-    { id: 'CAM_04', img: cam04 },
+    { label: 'ACTIVE CAMERAS', value: '0', change: '—', positive: true },
+    { label: 'THREATS DETECTED', value: '0', change: '—', positive: true },
+    { label: 'SYSTEM UPTIME', value: '—', change: '—', positive: true },
 ];
 
 const Dashboard = () => {
@@ -57,7 +46,7 @@ const Dashboard = () => {
             ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke();
         }
 
-        const points = [0.3, 0.25, 0.2, 0.22, 0.28, 0.35, 0.45, 0.55, 0.65, 0.72, 0.78, 0.82, 0.88, 0.85, 0.78, 0.72, 0.68, 0.7, 0.75, 0.72, 0.65, 0.55, 0.42, 0.35];
+        const points = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         const getX = (i) => padL + (i / (points.length - 1)) * cw;
         const getY = (v) => padT + ch - v * ch;
 
@@ -77,11 +66,6 @@ const Dashboard = () => {
             ctx.bezierCurveTo((getX(i - 1) + getX(i)) / 2, getY(points[i - 1]), (getX(i - 1) + getX(i)) / 2, getY(points[i]), getX(i), getY(points[i]));
         }
         ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2.5; ctx.stroke();
-
-        [8, 13, 20].forEach(i => {
-            ctx.beginPath(); ctx.arc(getX(i), getY(points[i]), 5, 0, Math.PI * 2); ctx.fillStyle = '#00d4ff'; ctx.fill();
-            ctx.beginPath(); ctx.arc(getX(i), getY(points[i]), 8, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(0,212,255,0.3)'; ctx.lineWidth = 2; ctx.stroke();
-        });
 
         const xLabels = ['00:00', '08:00', '16:00', '23:50'];
         ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '12px Inter, sans-serif'; ctx.textAlign = 'center';
@@ -121,17 +105,26 @@ const Dashboard = () => {
 
             <div className="dash-feeds-card">
                 <div className="dash-feeds-header">
-                    <h3>Live Feed Selection</h3>
-                    <a href="#" className="dash-feeds-view-all">VIEW ALL</a>
+                    <h3>Live Camera Feeds</h3>
                 </div>
-                <div className="dash-feeds-grid">
-                    {cameraFeeds.map((cam) => (
-                        <div className="dash-feed-item" key={cam.id}>
-                            <img src={cam.img} alt={cam.id} />
-                            <span className="dash-feed-label">{cam.id}</span>
-                            <span className="dash-feed-live-dot"></span>
-                        </div>
-                    ))}
+                <div className="dash-feeds-empty">
+                    <div className="dash-feeds-empty-icon">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M23 7l-7 5 7 5V7z" />
+                            <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                        </svg>
+                    </div>
+                    <h4 className="dash-feeds-empty-title">No Cameras Connected</h4>
+                    <p className="dash-feeds-empty-text">
+                        Connect a camera to start real-time surveillance and AI-powered anomaly detection.
+                    </p>
+                    <button className="dash-connect-cam-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19" />
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                        </svg>
+                        Connect Camera
+                    </button>
                 </div>
             </div>
         </DashboardLayout>

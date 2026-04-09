@@ -292,6 +292,20 @@
     transform: translateY(-1px);
 }
 
+.eh-incident-duration {
+    font-size: 0.75rem;
+    color: var(--accent);
+    opacity: 0.8;
+    margin-top: 2px;
+}
+
+.eh-incident-source {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-style: italic;
+    margin-top: 2px;
+}
+
 .eh-no-results {
     grid-column: 1 / -1;
     text-align: center;

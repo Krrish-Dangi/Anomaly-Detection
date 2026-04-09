@@ -1,23 +1,17 @@
 import { useState, useEffect } from 'react';
 import { gsap } from 'gsap';
 import DashboardLayout from '../components/DashboardLayout';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import { useTheme } from '../context/ThemeContext';
 import '../pages/Dashboard.css';
 import './Settings.css';
 
-const defaultCameras = [
-    { id: 'CAM-01', location: 'Entrance', active: true },
-    { id: 'CAM-02', location: 'Aisle 3', active: true },
-    { id: 'CAM-03', location: 'Checkout', active: true },
-    { id: 'CAM-04', location: 'Stockroom', active: true },
-    { id: 'CAM-05', location: 'Aisle 2', active: true },
-    { id: 'CAM-06', location: 'Checkout', active: true },
-    { id: 'CAM-07', location: 'Aisle 5', active: true },
-    { id: 'CAM-08', location: 'Entrance', active: true },
-];
+const defaultCameras = [];
 
 const Settings = () => {
     const { isDark, toggleTheme } = useTheme();
+    const { user, profile, updateProfile, isAuthenticated } = useAuth();
 
     // User profile
     const [userName, setUserName] = useState('Guest');
@@ -45,13 +39,103 @@ const Settings = () => {
     // Save feedback
     const [saved, setSaved] = useState(false);
 
-    const toggleCamera = (idx) => {
-        setCameras(prev => prev.map((c, i) => i === idx ? { ...c, active: !c.active } : c));
+    // Load profile info from auth context
+    useEffect(() => {
+        if (profile) {
+            setUserName(profile.full_name || 'Guest');
+            setUserEmail(profile.email || 'guest@gmail.com');
+        }
+    }, [profile]);
+
+    // Load settings from Supabase
+    useEffect(() => {
+        if (!user) return;
+        const loadSettings = async () => {
+            const { data } = await supabase
+                .from('user_settings')
+                .select('*')
+                .eq('user_id', user.id)
+                .single();
+
+            if (data) {
+                setSuspicious(data.detect_suspicious ?? true);
+                setLoitering(data.detect_loitering ?? true);
+                setShelfInteraction(data.detect_shelf_interaction ?? true);
+                setAiThreshold(data.confidence_threshold ?? 80);
+                setDesktopAlerts(data.desktop_alerts ?? true);
+                setEmailAlerts(data.email_alerts ?? true);
+                setSoundAlerts(data.sound_alerts ?? true);
+                setDataRetention(data.data_retention ?? false);
+                setAutoExport(data.auto_export ?? false);
+            }
+        };
+        loadSettings();
+    }, [user]);
+
+    // Load cameras from Supabase
+    useEffect(() => {
+        if (!user) return;
+        const loadCameras = async () => {
+            const { data } = await supabase
+                .from('cameras')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('camera_id');
+
+            if (data && data.length > 0) {
+                setCameras(data.map(c => ({
+                    id: c.camera_id,
+                    location: c.location,
+                    active: c.is_active,
+                    dbId: c.id,
+                })));
+            }
+        };
+        loadCameras();
+    }, [user]);
+
+    const toggleCamera = async (idx) => {
+        const cam = cameras[idx];
+        const newActive = !cam.active;
+        setCameras(prev => prev.map((c, i) => i === idx ? { ...c, active: newActive } : c));
+
+        // Persist to Supabase if authenticated
+        if (isAuthenticated && cam.dbId) {
+            await supabase
+                .from('cameras')
+                .update({ is_active: newActive, updated_at: new Date().toISOString() })
+                .eq('id', cam.dbId);
+        }
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
+        // Save settings to Supabase
+        if (isAuthenticated && user) {
+            await supabase
+                .from('user_settings')
+                .update({
+                    detect_suspicious: suspicious,
+                    detect_loitering: loitering,
+                    detect_shelf_interaction: shelfInteraction,
+                    confidence_threshold: aiThreshold,
+                    desktop_alerts: desktopAlerts,
+                    email_alerts: emailAlerts,
+                    sound_alerts: soundAlerts,
+                    data_retention: dataRetention,
+                    auto_export: autoExport,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('user_id', user.id);
+        }
         setSaved(true);
         setTimeout(() => setSaved(false), 2000);
+    };
+
+    const handleProfileSave = async () => {
+        if (editingProfile && isAuthenticated) {
+            await updateProfile({ full_name: userName, email: userEmail });
+        }
+        setEditingProfile(!editingProfile);
     };
 
     // GSAP entrance
@@ -106,7 +190,7 @@ const Settings = () => {
                     </div>
                     <button
                         className="st-btn-accent"
-                        onClick={() => setEditingProfile(!editingProfile)}
+                        onClick={handleProfileSave}
                     >
                         {editingProfile ? 'Save Profile' : 'Edit Profile'}
                     </button>

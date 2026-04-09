@@ -1,29 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { gsap } from 'gsap';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import DashboardLayout from '../components/DashboardLayout';
 import '../pages/Dashboard.css';
 import './EventHistory.css';
 
-import cam01 from '../assets/cam-01.png';
-import cam02 from '../assets/cam-02.png';
-import cam03 from '../assets/cam-03.png';
-import cam04 from '../assets/cam-04.png';
-
-const thumbs = [cam01, cam02, cam03, cam04];
-
-const incidentData = [
-    { type: 'Shelf Tampering', camera: 'CAM-01', date: 'Oct 25, 14:32:30', confidence: 94, thumb: 0, daysAgo: 1 },
-    { type: 'Loitering', camera: 'CAM-02', date: 'Oct 25, 14:32:30', confidence: 88, thumb: 1, daysAgo: 2 },
-    { type: 'Shelf Tampering', camera: 'CAM-03', date: 'Oct 25, 14:32:30', confidence: 91, thumb: 2, daysAgo: 3 },
-    { type: 'Shelf Tampering', camera: 'CAM-01', date: 'Oct 24, 11:15:22', confidence: 96, thumb: 3, daysAgo: 5 },
-    { type: 'Loitering', camera: 'CAM-02', date: 'Oct 24, 09:44:10', confidence: 82, thumb: 0, daysAgo: 15 },
-    { type: 'Loitering', camera: 'CAM-04', date: 'Oct 23, 18:20:55', confidence: 87, thumb: 1, daysAgo: 45 },
-];
-
 const chartData = {
     labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
-    values: [20, 28, 45, 60, 52, 68, 55, 92],
+    values: [0, 0, 0, 0, 0, 0, 0, 0],
 };
 
 const LockIcon = () => (
@@ -35,12 +21,41 @@ const LockIcon = () => (
 
 const EventHistory = () => {
     const navigate = useNavigate();
+    const { isAuthenticated, user } = useAuth();
     const canvasRef = useRef(null);
     const [dateRange, setDateRange] = useState('last7');
     const [eventType, setEventType] = useState('all');
     const [camera, setCamera] = useState('all');
     const [confidence, setConfidence] = useState(80);
-    const isLocked = true; // Will be replaced with actual auth state later
+    const [incidents, setIncidents] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const isLocked = !isAuthenticated;
+
+    // Fetch incidents from Supabase
+    useEffect(() => {
+        if (!isAuthenticated || !user) {
+            setLoading(false);
+            return;
+        }
+
+        const fetchIncidents = async () => {
+            setLoading(true);
+            const { data, error } = await supabase
+                .from('incidents')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('detected_at', { ascending: false });
+
+            if (error) {
+                console.error('Error fetching incidents:', error.message);
+            } else {
+                setIncidents(data || []);
+            }
+            setLoading(false);
+        };
+
+        fetchIncidents();
+    }, [isAuthenticated, user]);
 
     // Draw chart
     useEffect(() => {
@@ -142,10 +157,17 @@ const EventHistory = () => {
 
     // Filter incidents
     const dateLimit = dateRange === 'last7' ? 7 : dateRange === 'last30' ? 30 : 90;
-    const filtered = incidentData.filter(item => {
-        if (item.daysAgo > dateLimit) return false;
-        if (eventType !== 'all' && item.type !== eventType) return false;
-        if (camera !== 'all' && item.camera !== camera) return false;
+    const now = new Date();
+    const filtered = incidents.filter(item => {
+        // Date filter
+        const detectedAt = new Date(item.detected_at);
+        const daysAgo = (now - detectedAt) / (1000 * 60 * 60 * 24);
+        if (daysAgo > dateLimit) return false;
+        // Event type filter
+        if (eventType !== 'all' && item.event_type !== eventType) return false;
+        // Camera filter
+        if (camera !== 'all' && item.camera_id !== camera) return false;
+        // Confidence filter
         if (item.confidence < confidence) return false;
         return true;
     });
@@ -156,9 +178,12 @@ const EventHistory = () => {
         ? Math.round(filtered.reduce((sum, i) => sum + i.confidence, 0) / totalFiltered)
         : 0;
     const typeCounts = {};
-    filtered.forEach(i => { typeCounts[i.type] = (typeCounts[i.type] || 0) + 1; });
+    filtered.forEach(i => { typeCounts[i.event_type] = (typeCounts[i.event_type] || 0) + 1; });
     const mostFrequent = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0];
     const mostFrequentEvent = mostFrequent ? mostFrequent[0] : '—';
+
+    // Get unique event types for filter dropdown
+    const eventTypes = [...new Set(incidents.map(i => i.event_type))];
 
     return (
         <DashboardLayout title="AI History & Incident Analysis" subtitle="Real-time monitoring and threat detection active.">
@@ -180,8 +205,9 @@ const EventHistory = () => {
                             <label>Event Type</label>
                             <select value={eventType} onChange={e => setEventType(e.target.value)}>
                                 <option value="all">All Events</option>
-                                <option value="Shelf Tampering">Shelf Tampering</option>
-                                <option value="Loitering">Loitering</option>
+                                {eventTypes.map(t => (
+                                    <option key={t} value={t}>{t}</option>
+                                ))}
                             </select>
                         </div>
                         <div className="eh-filter-group">
@@ -234,22 +260,29 @@ const EventHistory = () => {
                 {/* === Incident Grid === */}
                 <h3 className="eh-grid-title">Incident Event Grid</h3>
                 <div className="eh-incidents-grid">
-                    {filtered.map((item, i) => (
-                        <div className="eh-incident-card" key={i}>
-                            <div className="eh-incident-thumb">
-                                <img src={thumbs[item.thumb]} alt={item.type} />
-                            </div>
+                    {loading && (
+                        <div className="eh-no-results">Loading incidents...</div>
+                    )}
+                    {!loading && filtered.map((item) => (
+                        <div className="eh-incident-card" key={item.id}>
                             <div className="eh-incident-info">
-                                <h4>{item.type}</h4>
-                                <p>Camera ID: <strong>{item.camera}</strong></p>
-                                <p>{item.date}</p>
+                                <h4>{item.event_type}</h4>
+                                <p>Source: <strong>{item.camera_id}</strong></p>
+                                <p>{new Date(item.detected_at).toLocaleString()}</p>
+                                {item.metadata?.duration_sec && (
+                                    <p className="eh-incident-duration">
+                                        Duration: {item.metadata.duration_sec}s &middot; {item.metadata.start_time} → {item.metadata.end_time}
+                                    </p>
+                                )}
+                                {item.metadata?.file_name && (
+                                    <p className="eh-incident-source">File: {item.metadata.file_name}</p>
+                                )}
                             </div>
                             <div className="eh-incident-actions">
                                 <span className="eh-incident-confidence">Confidence: {item.confidence}%</span>
-                                <button className="eh-view-clip-btn">View Clip</button>
                             </div>
                         </div>
-                    ))}
+                    ))}}
                     {filtered.length === 0 && (
                         <div className="eh-no-results">No incidents match your filters.</div>
                     )}

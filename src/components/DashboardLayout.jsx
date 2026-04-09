@@ -1,4 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import './DashboardLayout.css';
 import logoImg from '../assets/logo.png';
 import ParticlesBg from './ParticlesBg';
@@ -37,6 +38,18 @@ const navItems = [
 const DashboardLayout = ({ children, title, subtitle }) => {
     const navigate = useNavigate();
     const location = useLocation();
+    const { profile, isAuthenticated, signOut } = useAuth();
+
+    const displayName = profile?.full_name || 'Guest';
+    const displayEmail = profile?.email || 'guest@gmail.com';
+    const avatarInitial = displayName.charAt(0).toUpperCase() || 'G';
+
+    const handleLogout = async () => {
+        if (isAuthenticated) {
+            await signOut();
+        }
+        navigate('/');
+    };
 
     return (
         <div className="dash-layout">
@@ -71,17 +84,17 @@ const DashboardLayout = ({ children, title, subtitle }) => {
 
                 <div className="dash-sidebar-bottom">
                     <div className="dash-sidebar-user">
-                        <div className="dash-sidebar-avatar">G</div>
+                        <div className="dash-sidebar-avatar">{avatarInitial}</div>
                         <div>
-                            <div className="dash-sidebar-username">Guest</div>
-                            <div className="dash-sidebar-email">guest@gmail.com</div>
+                            <div className="dash-sidebar-username">{displayName}</div>
+                            <div className="dash-sidebar-email">{displayEmail}</div>
                         </div>
                     </div>
-                    <button className="dash-sidebar-logout" onClick={() => navigate('/')}>
+                    <button className="dash-sidebar-logout" onClick={handleLogout}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
                         </svg>
-                        Terminate Session
+                        {isAuthenticated ? 'Sign Out' : 'Back to Home'}
                     </button>
                 </div>
             </aside>
