@@ -84,7 +84,13 @@ const DashboardLayout = ({ children, title, subtitle }) => {
 
                 <div className="dash-sidebar-bottom">
                     <div className="dash-sidebar-user">
-                        <div className="dash-sidebar-avatar">{avatarInitial}</div>
+                        <div className="dash-sidebar-avatar">
+                            {profile?.avatar_url ? (
+                                <img src={profile.avatar_url} alt="Profile" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                            ) : (
+                                avatarInitial
+                            )}
+                        </div>
                         <div>
                             <div className="dash-sidebar-username">{displayName}</div>
                             <div className="dash-sidebar-email">{displayEmail}</div>

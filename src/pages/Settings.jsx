@@ -16,6 +16,8 @@ const Settings = () => {
     // User profile
     const [userName, setUserName] = useState('Guest');
     const [userEmail, setUserEmail] = useState('guest@gmail.com');
+    const [userAvatar, setUserAvatar] = useState(null);
+    const [uploading, setUploading] = useState(false);
     const [editingProfile, setEditingProfile] = useState(false);
 
     // AI Detection
@@ -44,8 +46,43 @@ const Settings = () => {
         if (profile) {
             setUserName(profile.full_name || 'Guest');
             setUserEmail(profile.email || 'guest@gmail.com');
+            setUserAvatar(profile.avatar_url || null);
         }
     }, [profile]);
+
+    const handleAvatarUpload = async (event) => {
+        try {
+            setUploading(true);
+            if (!event.target.files || event.target.files.length === 0) {
+                return;
+            }
+
+            const file = event.target.files[0];
+            const fileExt = file.name.split('.').pop();
+            const fileName = `${user.id}-${Math.random()}.${fileExt}`;
+            const filePath = `${fileName}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('avatars')
+                .upload(filePath, file);
+
+            if (uploadError) throw uploadError;
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('avatars')
+                .getPublicUrl(filePath);
+
+            setUserAvatar(publicUrl);
+            if (isAuthenticated) {
+                await updateProfile({ avatar_url: publicUrl });
+            }
+        } catch (error) {
+            console.error('Error uploading avatar:', error.message);
+            alert('Error uploading avatar! Please ensure the "avatars" bucket is created and set to public in Supabase.');
+        } finally {
+            setUploading(false);
+        }
+    };
 
     // Load settings from Supabase
     useEffect(() => {
@@ -160,9 +197,27 @@ const Settings = () => {
                     <h3>User Profile</h3>
                     <div className="st-profile-body">
                         <div className="st-profile-avatar">
-                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
-                            </svg>
+                            {userAvatar ? (
+                                <img src={userAvatar} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            ) : (
+                                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+                                </svg>
+                            )}
+                            {editingProfile && (
+                                <label className="st-profile-avatar-upload" title="Upload Profile Picture">
+                                    {uploading ? (
+                                        <span style={{ fontSize: '10px' }}>Wait...</span>
+                                    ) : (
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                            <polyline points="17 8 12 3 7 8" />
+                                            <line x1="12" y1="3" x2="12" y2="15" />
+                                        </svg>
+                                    )}
+                                    <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAvatarUpload} disabled={uploading} />
+                                </label>
+                            )}
                         </div>
                         <div className="st-profile-info">
                             {editingProfile ? (

@@ -158,6 +158,24 @@
     justify-content: center;
     color: var(--accent);
     flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+}
+
+.st-profile-avatar-upload {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.st-profile-avatar-upload:hover {
+    background: rgba(0, 0, 0, 0.8);
 }
 
 .st-profile-info {
