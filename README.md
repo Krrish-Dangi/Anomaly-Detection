@@ -1,119 +1,136 @@
-# 🛡️ SentinelAI: AI-Powered Smart Retail Surveillance System
+# 🛡️ SentinelAI: Real-Time Smart Retail Surveillance Platform
 
-An intelligent full-stack surveillance system built for retail environments. SentinelAI automates video monitoring by leveraging a deep learning model (ResNet18 + LSTM) to detect and classify anomalous activities such as **shoplifting**, **robbery**, **assault**, and **vandalism** in real-time — helping store managers respond faster and reduce losses.
-
-This project was built as part of a Design Thinking & Innovation (DTI) project.
+SentinelAI is an intelligent, live-streaming surveillance dashboard designed for retail environments. Moving beyond traditional offline video analysis, this platform provides **zero-latency real-time threat detection**. It achieves this by turning any mobile device into a secure security camera that streams over WebSockets via Ngrok tunnels, directly feeding into a high-speed YOLO + DeepSORT tracking backend.
 
 ---
 
-## ✨ System Features
+## ✨ Core Features
 
-- **📊 Central Dashboard** — Live overview with active camera feeds, daily threat counters, foot traffic trends, and system uptime.
-- **🎬 AI Video Analysis** — Upload surveillance footage for immediate deep learning inference. Replaces constant human monitoring by highlighting high-priority events with bounding box tracking and time-stamped logs.
-- **📁 Event History** — Persistent incident logs with powerful filtering (date, event type, camera, confidence level) powered by SQLite and SQLAlchemy.
-- **⚙️ Dynamic System Settings** — Fully functional settings panel to manage AI detection targets, confidence thresholds, cross-platform alerts, and Camera I/O.
+- **🔴 Live Mobile Camera Streaming** — Use any smartphone as a surveillance camera. Connect instantly via QR Code and stream video frames in real-time over secure WebSockets.
+- **⚡ Zero-Latency AI Detection** — Powered by YOLO (You Only Look Once) and DeepSORT for persistent, high-speed person tracking and bounding box overlays across all frames.
+- **📊 Interactive Real-Time Dashboard** — Live updates to active threat counters, foot traffic graphs, and camera statuses directly fed by the detection engine.
+- **📁 Cloud Incident History** — Persistent incident logging and filtering powered by Supabase Authentication and database services.
 - **🌗 Stunning UI** — Dark/Light themes, smooth GSAP animations, native WebGL elements (via OGL), and an intuitive React architecture.
 
 ---
 
 ## 🛠️ Complete Technology Stack
 
-The system architecture spans three distinct tiers, ensuring scalability and performance:
+The SentinelAI architecture is built for maximum speed and real-time responsiveness.
 
-### 1. Frontend (Presentation Tier)
-- **React 19 & Vite 7** — Fast UI framework paired with a sub-second HMR build tool.
-- **React Router v7** — Dynamic, client-side nested routing.
-- **GSAP & OGL** — Professional-grade scroll animations and WebGL effects.
-- **Vanilla CSS** — Strict design system with variables for fast styling.
-- **Supabase** — Provides secure Email-based user Authentication.
+### 1. Frontend (Presentation & Streaming Client)
+- **React 19 & Vite 7** — High-performance UI framework and build pipeline.
+- **GSAP & OGL** — Professional-grade scroll animations and WebGL visual effects.
+- **WebSocket Client** — For transmitting camera feeds from mobile clients and receiving live bounding-box updates.
 
-### 2. Backend API (Application Tier)
-- **Python 3.11** — Required for optimal PyTorch CUDA compatibility and performance.
-- **FastAPI & Uvicorn** — High-performance, async REST API server with built-in WebSockets.
-- **SQLAlchemy & SQLite** — Simple, file-based database for managing cameras, jobs, events, and settings.
-- **Pydantic** — Strict data validation for APIs.
+### 2. Backend API (Application & Routing)
+- **Python 3.11 & FastAPI** — Asynchronous backend server handling REST API queries and WebSocket connections.
+- **Uvicorn** — High-performance ASGI web server.
+- **Supabase** — Provides secure Email-based user Authentication and persistent, remote storage of event history.
 
-### 3. AI / Machine Learning Engine
-- **PyTorch (2.5)** — Model inference operations.
-- **ResNet18** — A lightweight, pretrained Convolutional Neural Network (CNN) serving as a spatial feature extractor. Early layers are frozen to leverage ImageNet knowledge. 
-- **LSTM (2-layer)** — Recurrent Neural Network that interprets sequences of frames (temporal reasoning) to classify actions over time.
-- **OpenCV** — Real-time headless video frame extraction and matrix preparation.
-
----
-
-## 🏗️ Deep Learning Architecture
-
-The system achieves **96.7% accuracy** across 13 distinct anomaly classes (such as Arson, Burglary, Fighting, RoadAccidents, and more) plus normal activity. 
-
-**How it works under the hood:**
-1. **Clip Extraction:** Video feeds are sliced into dense, overlapping 16-frame sequences.
-2. **Spatial Parsing:** Each frame enters ResNet18, returning a rich 512-dimensional spatial feature vector.
-3. **Temporal Reasoning:** Sequences are passed to a 2-layer LSTM. The model monitors the change in spatial coordinates to derive and understand actions taking place over time.
-4. **Classification Head:** Probabilities are sorted using a custom softmax classifier with inverse-frequency weighting, mapping results to the 14 UCF-Crime Dataset categories. 
+### 3. AI / Machine Learning Engine (Zero-Latency Core)
+- **YOLO (Object Detection)** — High-speed, single-pass neural network engineered for lightning-fast bounding box detection of people and objects.
+- **DeepSORT (Object Tracking)** — Ensures persistent identity tracking across frames so that movement, behavior, and paths are recognized continuously rather than flash-detected.
+- **OpenCV** — Real-time headless video frame manipulation.
+- **Ngrok** — Secure public tunneling to expose the local WebSocket streams to mobile phones over HTTPS.
 
 ---
 
 ## 🚀 Installation & Local Setup Guide
 
-We have decoupled the system into independent frontend and backend servers. Follow these steps to run the dashboard and AI model locally.
+We have decoupled the system into independent frontend and backend servers. Since this system relies on cloud databases and local port tunneling, ensure you configure the `.env` variables carefully.
 
 ### Prerequisites
 - [Node.js](https://nodejs.org/en) (v18 or higher)
 - [Python 3.11.x](https://www.python.org/downloads/release/python-3119/)
 - Git
 
-### Step 1: Clone the repository
+---
+
+### Step 1: External Service Setup (Important!)
+SentinelAI heavily relies on two external services for its real-time functionality. You **must** configure these before running the app.
+
+#### 1A. Install & Configure Ngrok (For WebSocket Streaming)
+Ngrok creates a secure tunnel from the public internet to your local machine, allowing mobile phones to stream video frames to your local AI engine.
+1. Sign up for a free account at [Ngrok](https://ngrok.com/).
+2. Download the Ngrok executable for your OS and install it.
+3. Authenticate your local Ngrok installation in your terminal using your unique authtoken from the Ngrok dashboard:
+   ```bash
+   ngrok config add-authtoken YOUR_NGROK_AUTH_TOKEN
+   ```
+
+#### 1B. Create a Supabase Project (For Database & Auth)
+Supabase is used for user authentication and storing the persistent incident logs.
+1. Sign up at [Supabase](https://supabase.com/) and create a new Project.
+2. Once created, go to **Project Settings > API** to find your `Project URL` and `anon public key`.
+3. Go to **Authentication > Providers** and ensure **Email** authentication is enabled.
+4. *Note: As this is a decoupled system, the backend uses a local SQLite database for speed, but the frontend relies on Supabase for Auth.*
+
+---
+
+### Step 2: Clone the repository
 
 ```bash
 git clone https://github.com/Krrish-Dangi/Anomaly-Detection.git
 cd Anomaly-Detection
 ```
 
-### Step 2: Environment Variables
-Create a `.env` file in the root directory and add your Supabase credentials for Authentication:
+---
+
+### Step 3: Environment Variables (Locally Secured)
+Create a `.env` file in the **root directory** and add your Supabase credentials for Authentication and database access. Do **NOT** push this file to GitHub:
 ```env
 VITE_SUPABASE_URL="YOUR_SUPABASE_PROJECT_URL"
 VITE_SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_KEY"
 ```
 
-### Step 3: Start the Backend & AI Engine
+---
 
-The frontend relies heavily on data coming from the AI Backend. Let's start the API first.
+### Step 4: Ngrok & Backend Setup
 
-1. Navigate to the backend folder:
+To allow an external mobile phone to connect as a camera to your local AI engine, your backend and WebSocket connections must be exposed securely over HTTPS via Ngrok.
+
+1. **Start Ngrok** (In a new terminal window):
+   ```bash
+   ngrok http 8000
+   ```
+   *Take note of the provided `https://<YOUR_NGROK_ID>.ngrok.app` URL. You will use this to connect your mobile devices.*
+
+2. **Start the AI Backend** (In a second terminal window):
    ```bash
    cd backend
-   ```
-2. Create and activate a Virtual Environment:
-   * **Windows (PowerShell):** `python -m venv venv; .\venv\Scripts\activate`
-   * **macOS/Linux:** `python3 -m venv venv; source venv/bin/activate`
-3. Install dependencies:
-   ```bash
+   
+   # Activate your virtual environment
+   # Windows: python -m venv venv; .\venv\Scripts\activate
+   # macOS/Linux: python3 -m venv venv; source venv/bin/activate
+   
+   # Install dependencies
    pip install -r requirements.txt
-   ```
-4. Start the FastAPI server (it auto-generates the local SQLite database):
-   ```bash
+   
+   # Run the server
    uvicorn main:app --reload --port 8000
    ```
-   > The API documentation is available at [http://localhost:8000/docs](http://localhost:8000/docs). 
 
-*(Note: Custom AI model weights can be configured by setting `$env:MODEL_WEIGHTS_PATH` before starting the server. It looks for `backend/ai/weights/anomaly_resnet18_lstm.pth` by default).*
+*(Note: Ensure your YOLO model weights are properly initialized inside `backend/ai/weights/` before starting the stream).*
 
-### Step 4: Start the Frontend UI
+---
 
-Open a second terminal window (keep the backend server running) and move to the root directory (`Anomaly-Detection`).
+### Step 5: Start the Frontend UI
 
-1. Install Node modules:
+With your backend and Ngrok tunnel actively running, launch the frontend dashboard. 
+
+1. **Start the Web UI** (In a third terminal window):
    ```bash
+   # Make sure you are in the project root: Anomaly-Detection
    npm install
-   ```
-2. Start Vite Development Server:
-   ```bash
    npm run dev
    ```
 *(Note for Windows Users: If you face script execution policy errors in PowerShell, use `cmd /c "npm run dev"`).*
 
-You can now visit your local system at `http://localhost:5173`. 
+2. **Connect to the System:**
+   - Open your browser to the local URL (usually `http://localhost:5173`).
+   - Log in using your Supabase credentials.
+   - Use the **Connect Camera** interface on the dashboard to scan the QR code (generated by your Ngrok address) using your mobile phone. Your live stream will instantly appear on the dashboard!
 
 ---
 
@@ -122,18 +139,16 @@ You can now visit your local system at `http://localhost:5173`.
 ```text
 Anomaly-Detection/
 ├── backend/                   # Python FastAPI Backend
-│   ├── ai/                    # Deep learning models & weights
-│   ├── data/                  # SQLite storage (surveillance.db)
-│   ├── routers/               # API endpoint grouping
-│   ├── database.py            # SQLAlchemy setup
+│   ├── ai/                    # YOLO & DeepSORT architecture & weights
+│   ├── routers/               # API endpoint grouping and WebSocket sockets
 │   └── main.py                # Server entry point
-├── src/                       # React 19 Frontend
+├── src/                       # React Frontend
 │   ├── assets/                # Images & public media
-│   ├── components/            # UI pieces (DashboardLayout, Alerts, Visuals)
-│   ├── pages/                 # Full Page Renders (Settings, History)
+│   ├── components/            # UI components and Video Players
+│   ├── pages/                 # Full Page Renders (Dashboard, Settings)
 │   ├── lib/                   # Supabase client config & API callers
 │   └── App.jsx                # Application Router Map 
-├── .env                       # Secrets (Requires manual creation)
+├── .env                       # Secrets/Ngrok configs (Do Not Commit)
 ├── package.json               # Node deps
 └── README.md                  # Unified system documentation
 ```
