@@ -282,7 +282,7 @@ const EventHistory = () => {
                                 <span className="eh-incident-confidence">Confidence: {item.confidence}%</span>
                             </div>
                         </div>
-                    ))}}
+                    ))}
                     {filtered.length === 0 && (
                         <div className="eh-no-results">No incidents match your filters.</div>
                     )}

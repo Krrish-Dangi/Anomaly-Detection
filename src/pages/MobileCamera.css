@@ -1,0 +1,229 @@
+/* ===== Mobile Camera Page ===== */
+.mobile-cam-page {
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: #0a0a0f;
+    display: flex;
+    flex-direction: column;
+    font-family: 'Inter', sans-serif;
+    color: #fff;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* ===== Video Preview ===== */
+.mobile-cam-preview {
+    position: relative;
+    flex: 1;
+    background: #000;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mobile-cam-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* ===== Top Overlay (Status + Camera ID) ===== */
+.mobile-cam-overlay-top {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.6), transparent);
+    z-index: 10;
+}
+
+.mobile-cam-status-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.mobile-cam-status-badge.streaming {
+    background: rgba(52, 211, 153, 0.15);
+    color: #34d399;
+    border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.mobile-cam-status-badge.connecting,
+.mobile-cam-status-badge.initializing {
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+    border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.mobile-cam-status-badge.error,
+.mobile-cam-status-badge.disconnected {
+    background: rgba(248, 113, 113, 0.15);
+    color: #f87171;
+    border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+.mobile-cam-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.7); }
+}
+
+.mobile-cam-id {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.7);
+    letter-spacing: 0.06em;
+    background: rgba(0, 0, 0, 0.4);
+    padding: 6px 12px;
+    border-radius: 8px;
+    backdrop-filter: blur(6px);
+}
+
+/* ===== Bottom Overlay (Stats) ===== */
+.mobile-cam-overlay-bottom {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: space-around;
+    padding: 14px 20px;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent);
+    z-index: 10;
+}
+
+.mobile-cam-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.mobile-cam-stat-label {
+    font-size: 0.6rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.45);
+    letter-spacing: 0.12em;
+}
+
+.mobile-cam-stat-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #00d4ff;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ===== Controls Section ===== */
+.mobile-cam-controls {
+    padding: 20px 20px;
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+    background: #0d0d14;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.mobile-cam-info {
+    margin-bottom: 16px;
+}
+
+.mobile-cam-info h2 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 4px;
+}
+
+.mobile-cam-info p {
+    font-size: 0.82rem;
+    color: rgba(255, 255, 255, 0.5);
+    line-height: 1.5;
+}
+
+.mobile-cam-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.mobile-cam-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 20px;
+    border-radius: 12px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    font-family: 'Inter', sans-serif;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+}
+
+.mobile-cam-btn.flip {
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.mobile-cam-btn.flip:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.mobile-cam-btn.flip:active {
+    transform: scale(0.97);
+}
+
+.mobile-cam-btn.reconnect {
+    background: linear-gradient(135deg, #00d4ff, #00b4d8);
+    color: #0a0a0f;
+    border: none;
+    box-shadow: 0 4px 20px rgba(0, 212, 255, 0.25);
+}
+
+.mobile-cam-btn.reconnect:hover {
+    box-shadow: 0 8px 30px rgba(0, 212, 255, 0.4);
+}
+
+.mobile-cam-btn.reconnect:active {
+    transform: scale(0.97);
+}
+
+/* ===== Responsive (ensure it works on all phone sizes) ===== */
+@media (max-height: 600px) {
+    .mobile-cam-controls {
+        padding: 12px 16px;
+    }
+
+    .mobile-cam-info h2 {
+        font-size: 0.95rem;
+    }
+
+    .mobile-cam-info p {
+        font-size: 0.75rem;
+    }
+
+    .mobile-cam-btn {
+        padding: 10px 16px;
+        font-size: 0.8rem;
+    }
+}

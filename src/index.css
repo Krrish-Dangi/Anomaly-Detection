@@ -27,6 +27,19 @@
   --max-width: 1200px;
   --grid-line: rgba(0, 212, 255, 0.03);
   --toggle-off-bg: rgba(255, 255, 255, 0.12);
+  --pullout-shadow: 0 -10px 60px rgba(0, 0, 0, 0.6), 0 -2px 20px rgba(0, 212, 255, 0.06);
+  --navbar-bg-scrolled: rgba(13, 19, 33, 0.85);
+  --navbar-pill-bg: rgba(13, 19, 33, 0.6);
+  --overlay-bg: rgba(0, 5, 15, 0.75);
+  --modal-bg: #0d1321;
+  --input-bg: rgba(255, 255, 255, 0.02);
+  --input-border: rgba(255, 255, 255, 0.1);
+  --divider-color: rgba(255, 255, 255, 0.15);
+  --glass-bg: rgba(13, 19, 33, 0.8);
+  --shadow-modal: 0 32px 64px rgba(0, 0, 0, 0.6);
+  --bg-card-1: rgba(0, 212, 255, 0.03);
+  --bg-card-2: rgba(52, 211, 153, 0.03);
+  --bg-card-3: rgba(139, 92, 246, 0.03);
 }
 
 /* ===== Light Mode ===== */
@@ -47,6 +60,19 @@
   --shadow-glow-lg: 0 4px 24px rgba(8, 145, 178, 0.12);
   --grid-line: rgba(8, 145, 178, 0.04);
   --toggle-off-bg: rgba(0, 0, 0, 0.12);
+  --pullout-shadow: 0 -10px 50px rgba(0, 0, 0, 0.08), 0 -2px 12px rgba(8, 145, 178, 0.04);
+  --navbar-bg-scrolled: rgba(255, 255, 255, 0.85);
+  --navbar-pill-bg: rgba(255, 255, 255, 0.7);
+  --overlay-bg: rgba(240, 244, 248, 0.75);
+  --modal-bg: #ffffff;
+  --input-bg: rgba(255, 255, 255, 0.5);
+  --input-border: rgba(0, 150, 180, 0.15);
+  --divider-color: rgba(0, 150, 180, 0.1);
+  --glass-bg: rgba(255, 255, 255, 0.8);
+  --shadow-modal: 0 32px 64px rgba(0, 0, 0, 0.1);
+  --bg-card-1: #f1f7ff;
+  --bg-card-2: #f1faf9;
+  --bg-card-3: #f5f6ff;
 }
 
 /* ===== Reset ===== */
@@ -220,9 +246,9 @@ button {
 .content-pullout {
   position: relative;
   z-index: 2;
-  background: #0a0d14;
+  background: var(--bg-primary);
   border-radius: 32px 32px 0 0;
   margin-top: -40px;
-  box-shadow: 0 -10px 60px rgba(0, 0, 0, 0.6), 0 -2px 20px rgba(0, 212, 255, 0.06);
+  box-shadow: var(--pullout-shadow);
   overflow: hidden;
 }

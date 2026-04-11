@@ -436,6 +436,506 @@
     box-shadow: 0 8px 30px rgba(0, 212, 255, 0.35);
 }
 
+/* ===== Add Camera Button (in header) ===== */
+.dash-add-cam-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: var(--radius-md);
+    font-size: 0.8rem;
+    font-weight: 600;
+    font-family: var(--font-family);
+    color: var(--accent);
+    background: rgba(0, 212, 255, 0.08);
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.dash-add-cam-btn:hover {
+    background: rgba(0, 212, 255, 0.14);
+    border-color: rgba(0, 212, 255, 0.35);
+}
+
+/* ===== Live Feed Grid ===== */
+.dash-feeds-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+}
+
+.dash-feed-tile {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    transition: var(--transition);
+}
+
+.dash-feed-tile:hover {
+    border-color: var(--border-hover);
+}
+
+.dash-feed-tile-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.dash-feed-tile-id {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: 0.04em;
+}
+
+.dash-feed-tile-live {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: #34d399;
+    letter-spacing: 0.1em;
+}
+
+.dash-feed-live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #34d399;
+    animation: pulse-glow 2s infinite;
+}
+
+.dash-feed-tile-body {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.dash-feed-tile-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.dash-feed-tile-waiting {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.dash-feed-spinner {
+    width: 28px;
+    height: 28px;
+    border: 3px solid rgba(255, 255, 255, 0.08);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ===== QR Code Modal ===== */
+.qr-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.qr-modal {
+    position: relative;
+    background: #12121a;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 24px 28px 20px;
+    max-width: 420px;
+    width: 90%;
+    max-height: 98vh;
+    overflow-y: auto;
+    text-align: center;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+    animation: slideUp 0.3s ease;
+}
+
+/* Custom Scrollbar for QR Modal */
+.qr-modal::-webkit-scrollbar {
+    width: 6px;
+}
+
+.qr-modal::-webkit-scrollbar-track {
+    background: transparent;
+    margin: 16px 0; /* Keeps scrollbar away from rounded corners */
+}
+
+.qr-modal::-webkit-scrollbar-thumb {
+    background: rgba(0, 212, 255, 0.15);
+    border-radius: 10px;
+}
+
+.qr-modal::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 212, 255, 0.3);
+}
+
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.qr-modal-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition);
+}
+
+.qr-modal-close:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+}
+
+.qr-modal-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: rgba(0, 212, 255, 0.08);
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    margin: 0 auto 10px;
+}
+
+.qr-modal-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 4px;
+}
+
+.qr-modal-desc {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.5);
+    line-height: 1.4;
+    margin-bottom: 14px;
+}
+
+.qr-modal-code-wrap {
+    display: inline-flex;
+    padding: 8px;
+    background: #fff;
+    border-radius: 10px;
+    margin-bottom: 8px;
+    box-shadow: 0 0 30px rgba(0, 212, 255, 0.08);
+}
+
+.qr-modal-cam-id {
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.5);
+    margin-bottom: 8px;
+}
+
+.qr-modal-cam-id strong {
+    color: var(--accent);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+.qr-modal-url-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 6px 8px 6px 12px;
+    margin-bottom: 10px;
+}
+
+.qr-modal-url {
+    flex: 1;
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.4);
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: 'Courier New', monospace;
+}
+
+.qr-modal-copy {
+    padding: 5px 12px;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    font-family: var(--font-family);
+    color: var(--accent);
+    background: rgba(0, 212, 255, 0.1);
+    border: none;
+    cursor: pointer;
+    transition: var(--transition);
+    flex-shrink: 0;
+}
+
+.qr-modal-copy:hover {
+    background: rgba(0, 212, 255, 0.2);
+}
+
+.qr-modal-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+    align-items: flex-start;
+    padding-left: 48px;
+}
+
+.qr-modal-step {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.qr-modal-step-num {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: rgba(0, 212, 255, 0.1);
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.qr-modal-confirm {
+    width: 100%;
+    padding: 10px;
+    border-radius: 10px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    font-family: var(--font-family);
+    color: #0a0a0f;
+    background: linear-gradient(135deg, #00d4ff, #00b4d8);
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 20px rgba(0, 212, 255, 0.25);
+}
+
+.qr-modal-confirm:hover {
+    box-shadow: 0 8px 30px rgba(0, 212, 255, 0.4);
+    transform: translateY(-1px);
+}
+
+.qr-modal-confirm:active {
+    transform: scale(0.98);
+}
+
+/* ===== Connect Option Buttons ===== */
+.connect-option-btn {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+    text-align: left;
+}
+
+.connect-option-btn.local {
+    background: rgba(0, 212, 255, 0.06);
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    color: #fff;
+    margin-bottom: 0;
+}
+
+.connect-option-btn.local:hover {
+    background: rgba(0, 212, 255, 0.12);
+    border-color: rgba(0, 212, 255, 0.4);
+    transform: translateY(-1px);
+}
+
+.connect-option-btn.local:active {
+    transform: scale(0.98);
+}
+
+.connect-option-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: rgba(0, 212, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+.connect-option-text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.connect-option-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #fff;
+}
+
+.connect-option-desc {
+    font-size: 0.65rem;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.connect-option-arrow {
+    color: rgba(255, 255, 255, 0.3);
+    flex-shrink: 0;
+}
+
+/* ===== Divider ===== */
+.connect-divider {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 12px 0;
+}
+
+.connect-divider::before,
+.connect-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.connect-divider span {
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.3);
+    white-space: nowrap;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+}
+
+/* ===== QR Section ===== */
+.qr-section {
+    text-align: center;
+}
+
+.qr-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: rgba(251, 191, 36, 0.06);
+    border: 1px solid rgba(251, 191, 36, 0.15);
+    margin-bottom: 16px;
+    text-align: left;
+}
+
+.qr-note svg {
+    color: #fbbf24;
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.qr-note span {
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.45);
+    line-height: 1.5;
+}
+
+/* ===== Feed Tile Extras ===== */
+.dash-feed-tile-local-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 0.58rem;
+    font-weight: 700;
+    color: var(--accent);
+    background: rgba(0, 212, 255, 0.12);
+    letter-spacing: 0.08em;
+    vertical-align: middle;
+}
+
+.dash-feed-tile-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.dash-feed-tile-stop {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(248, 113, 113, 0.1);
+    color: #f87171;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.dash-feed-tile-stop:hover {
+    background: rgba(248, 113, 113, 0.2);
+    color: #fca5a5;
+}
+
+.dash-feed-tile-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
 /* ===== Responsive ===== */
 @media (max-width: 1024px) {
     .dash-feeds-grid {
@@ -461,3 +961,4 @@
         grid-template-columns: 1fr;
     }
 }
+

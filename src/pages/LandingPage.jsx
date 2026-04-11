@@ -10,6 +10,8 @@ import DemoPreview from '../components/DemoPreview';
 import Footer from '../components/Footer';
 import AuthModal from '../components/AuthModal';
 import ParticlesBg from '../components/ParticlesBg';
+import StandaloneAuth from '../components/StandaloneAuth';
+import { useTheme } from '../context/ThemeContext';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -17,6 +19,7 @@ function LandingPage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const [authOpen, setAuthOpen] = useState(false);
     const [authMode, setAuthMode] = useState('signin');
+    const { isDark } = useTheme();
 
     // Auto-open auth modal if ?auth=signin or ?auth=signup is in the URL
     useEffect(() => {
@@ -77,15 +80,7 @@ function LandingPage() {
             scrollTrigger: { trigger: '.features-grid', start: 'top 80%', toggleActions: 'play none none none' }
         });
 
-        gsap.fromTo('.how-it-works .section-title', { opacity: 0, y: 40 }, {
-            opacity: 1, y: 0, duration: 0.7, ease: 'power2.out',
-            scrollTrigger: { trigger: '.how-it-works', start: 'top 80%', toggleActions: 'play none none none' }
-        });
-        gsap.fromTo('.how-step', { opacity: 0, y: 40 }, {
-            opacity: 1, y: 0, duration: 0.5, stagger: 0.2, ease: 'power2.out',
-            scrollTrigger: { trigger: '.how-it-works-grid', start: 'top 80%', toggleActions: 'play none none none' }
-        });
-
+        // Animation logic for HowItWorks has been moved to its own component
         gsap.fromTo('.demo-preview .section-title', { opacity: 0, y: 40 }, {
             opacity: 1, y: 0, duration: 0.7, ease: 'power2.out',
             scrollTrigger: { trigger: '.demo-preview', start: 'top 80%', toggleActions: 'play none none none' }
@@ -98,10 +93,7 @@ function LandingPage() {
             opacity: 1, x: 0, duration: 0.7, delay: 0.3, ease: 'power2.out',
             scrollTrigger: { trigger: '.demo-image-container', start: 'top 70%', toggleActions: 'play none none none' }
         });
-        gsap.fromTo('.demo-cta', { opacity: 0, y: 20 }, {
-            opacity: 1, y: 0, duration: 0.6, ease: 'power2.out',
-            scrollTrigger: { trigger: '.demo-cta', start: 'top 90%', toggleActions: 'play none none none' }
-        });
+
         gsap.fromTo('.footer-inner', { opacity: 0, y: 30 }, {
             opacity: 1, y: 0, duration: 0.7, ease: 'power2.out',
             scrollTrigger: { trigger: '.footer', start: 'top 85%', toggleActions: 'play none none none' }
@@ -121,7 +113,7 @@ function LandingPage() {
 
             {/* Content sections that pull out from under the hero */}
             <div className="content-pullout">
-                <ParticlesBg quantity={60} ease={80} color="#00d4ff" staticity={30} />
+                <ParticlesBg quantity={60} ease={80} color={isDark ? "#00d4ff" : "#0891b2"} staticity={30} />
                 <Features />
                 <HowItWorks />
                 <DemoPreview />
