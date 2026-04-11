@@ -419,10 +419,18 @@
 }
 
 .auth-forgot {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0;
     color: #00d4ff;
     font-size: 0.85rem;
     font-weight: 600;
     text-decoration: none;
+}
+
+.auth-forgot:hover {
+    text-decoration: underline;
 }
 
 /* ===== Switch Mode ===== */

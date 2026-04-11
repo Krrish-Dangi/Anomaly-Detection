@@ -13,6 +13,7 @@ export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);       // Supabase auth user
     const [profile, setProfile] = useState(null);  // profiles table row
     const [loading, setLoading] = useState(true);
+    const [recoveryMode, setRecoveryMode] = useState(false);
 
     // Fetch the user's profile from the profiles table
     const fetchProfile = async (userId) => {
@@ -58,6 +59,8 @@ export const AuthProvider = ({ children }) => {
                 } else if (event === 'SIGNED_OUT') {
                     setUser(null);
                     setProfile(null);
+                } else if (event === 'PASSWORD_RECOVERY') {
+                    setRecoveryMode(true);
                 }
             }
         );
@@ -128,16 +131,36 @@ export const AuthProvider = ({ children }) => {
         return data;
     };
 
+    // Password recovery
+    const resetPasswordForEmail = async (email) => {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: window.location.origin + '/?auth=reset',
+        });
+        if (error) throw error;
+    };
+
+    const updateUserPassword = async (newPassword) => {
+        const { error } = await supabase.auth.updateUser({
+            password: newPassword
+        });
+        if (error) throw error;
+        setRecoveryMode(false);
+    };
+
     const value = {
         user,
         profile,
         loading,
+        recoveryMode,
+        setRecoveryMode,
         isAuthenticated: !!user,
         signInWithGoogle,
         signInWithEmail,
         signUpWithEmail,
         signOut,
         updateProfile,
+        resetPasswordForEmail,
+        updateUserPassword,
     };
 
     return (

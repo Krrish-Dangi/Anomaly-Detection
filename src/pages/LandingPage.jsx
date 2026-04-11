@@ -12,6 +12,7 @@ import AuthModal from '../components/AuthModal';
 import ParticlesBg from '../components/ParticlesBg';
 import StandaloneAuth from '../components/StandaloneAuth';
 import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../context/AuthContext';
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -20,17 +21,26 @@ function LandingPage() {
     const [authOpen, setAuthOpen] = useState(false);
     const [authMode, setAuthMode] = useState('signin');
     const { isDark } = useTheme();
+    const { recoveryMode } = useAuth();
 
-    // Auto-open auth modal if ?auth=signin or ?auth=signup is in the URL
+    // Auto-open auth modal if ?auth=signin or ?auth=signup or ?auth=reset is in the URL
     useEffect(() => {
         const authParam = searchParams.get('auth');
-        if (authParam === 'signin' || authParam === 'signup') {
-            setAuthMode(authParam);
+        if (authParam === 'signin' || authParam === 'signup' || authParam === 'reset') {
+            setAuthMode(authParam === 'reset' ? 'reset_password' : authParam);
             setAuthOpen(true);
-            // Clean up the URL param after opening
-            setSearchParams({}, { replace: true });
+            // We NO LONGER clear the param immediately, because React Router 
+            // will silently strip the #access_token hash that Supabase needs!
         }
     }, [searchParams, setSearchParams]);
+
+    // Priority auto-open if Supabase detects a recovery hash token
+    useEffect(() => {
+        if (recoveryMode) {
+            setAuthMode('reset_password');
+            setAuthOpen(true);
+        }
+    }, [recoveryMode]);
 
     const openSignIn = () => { setAuthMode('signin'); setAuthOpen(true); };
     const openSignUp = () => { setAuthMode('signup'); setAuthOpen(true); };
