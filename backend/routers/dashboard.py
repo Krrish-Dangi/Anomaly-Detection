@@ -1,12 +1,13 @@
 """
 Dashboard API routes.
-GET /api/dashboard/stats — system overview stats
-GET /api/dashboard/foot-traffic — foot traffic chart data
+GET /api/dashboard/stats — system overview stats (live from SQLite)
+GET /api/dashboard/foot-traffic — real event-count chart data
 """
 
 import math
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from datetime import datetime, timezone, timedelta
 
 from database import get_db
@@ -39,39 +40,59 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
         active_cameras=active_cameras,
         threats_detected_today=threats_today,
         threats_change_pct=change_pct,
-        system_uptime_pct=99.9,
-        uptime_change_pct=0.1,
+        system_uptime_pct=0.0,
+        uptime_change_pct=0.0,
     )
 
 
 @router.get("/foot-traffic", response_model=FootTrafficResponse)
-def get_foot_traffic(window: str = "24h"):
+def get_foot_traffic(window: str = "24h", db: Session = Depends(get_db)):
     """
-    Foot traffic data for chart visualization.
-    Generates realistic-looking sine-wave based data.
-    In production, this would aggregate actual detection counts.
+    Foot traffic / threat data for chart visualization.
+    Aggregates REAL events from the SQLite database bucketed by time.
+    Falls back to zeros if no events exist (clean chart).
     """
+    now = datetime.now(timezone.utc)
+
     if window == "1h":
         n_points = 12
+        interval_sec = 300  # 5 minutes
+        cutoff = now - timedelta(hours=1)
         labels = [f"{i * 5}m" for i in range(n_points)]
     elif window == "6h":
         n_points = 12
+        interval_sec = 1800  # 30 minutes
+        cutoff = now - timedelta(hours=6)
         labels = [f"{i * 30}m" for i in range(n_points)]
     elif window == "7d":
         n_points = 7
+        interval_sec = 86400  # 1 day
+        cutoff = now - timedelta(days=7)
         labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     else:  # 24h default
         n_points = 24
+        interval_sec = 3600  # 1 hour
+        cutoff = now - timedelta(hours=24)
         labels = [f"{h:02d}:00" for h in range(24)]
 
-    # Generate realistic foot-traffic curve (peaks at midday)
-    import random
-    random.seed(42)  # Deterministic for consistency
-    values = []
-    for i in range(n_points):
-        # Sine curve peaking at ~60% through the period
-        base = 0.3 + 0.5 * math.sin(math.pi * i / (n_points - 1))
-        noise = random.uniform(-0.05, 0.05)
-        values.append(round(max(0.0, min(1.0, base + noise)), 3))
+    # Query all events in the window
+    events = db.query(Event).filter(Event.timestamp >= cutoff).all()
+
+    # Bucket events into time slots
+    counts = [0] * n_points
+    for event in events:
+        # Calculate which bucket this event falls into
+        if event.timestamp.tzinfo is None:
+            event_time = event.timestamp.replace(tzinfo=timezone.utc)
+        else:
+            event_time = event.timestamp
+        delta = (event_time - cutoff).total_seconds()
+        bucket = int(delta / interval_sec)
+        if 0 <= bucket < n_points:
+            counts[bucket] += 1
+
+    # Normalize to 0.0-1.0 range for the chart
+    max_count = max(counts) if max(counts) > 0 else 1
+    values = [round(c / max_count, 3) for c in counts]
 
     return FootTrafficResponse(window=window, labels=labels, values=values)

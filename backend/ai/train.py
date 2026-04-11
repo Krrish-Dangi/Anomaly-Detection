@@ -3,15 +3,16 @@ Training script for the ResNet18+LSTM anomaly classifier on UCF Crime.
 
 Usage (from backend/ directory):
     python ai/train.py                         # train with defaults
-    python ai/train.py --epochs 10 --bs 8      # custom settings
+    python ai/train.py --epochs 25 --bs 4      # custom settings
     python ai/train.py --resume                 # resume from last checkpoint
     python ai/train.py --device cuda            # force GPU
 
-Improvements over baseline:
-    - Data augmentation (flip, jitter, random crop, temporal window)
+Features:
     - Class-weighted CrossEntropyLoss (handles imbalanced classes)
     - Early stopping (patience-based on val_loss)
     - Multi-clip sampling (3 clips per video)
+    - ReduceLROnPlateau scheduler
+    - Gradient clipping for stable training
 
 The trained weights are saved to  ai/weights/anomaly_resnet18_lstm.pth
 """
@@ -20,6 +21,7 @@ import argparse
 import os
 import sys
 import time
+import json
 from pathlib import Path
 
 import torch
@@ -44,6 +46,7 @@ from ai.dataset import (
 
 WEIGHTS_DIR = Path(__file__).resolve().parent / "weights"
 WEIGHTS_PATH = WEIGHTS_DIR / "anomaly_resnet18_lstm.pth"
+TRAIN_LOG_PATH = Path(__file__).resolve().parent / "train_log.json"
 
 
 def parse_args():
@@ -89,6 +92,8 @@ def train_one_epoch(model, loader, criterion, optimizer, device):
         logits = model(clips)
         loss = criterion(logits, labels)
         loss.backward()
+        # Gradient clipping for stable training
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
 
         running_loss += loss.item() * clips.size(0)
@@ -133,7 +138,7 @@ def main():
     args = parse_args()
     device = pick_device(args.device)
     print(f"\n{'='*60}")
-    print(f"  ResNet18+LSTM  UCF Crime Trainer (v2 - improved)")
+    print(f"  ResNet18+LSTM  UCF Crime Trainer")
     print(f"{'='*60}")
     print(f"  Device      : {device}")
     print(f"  Epochs      : {args.epochs}")
@@ -142,7 +147,7 @@ def main():
     print(f"  Val split   : {args.val_split}")
     print(f"  Clips/video : {args.clips}")
     print(f"  Patience    : {args.patience}")
-    print(f"  Augmentation: ON (flip, jitter, crop, temporal)")
+    print(f"  Grad clip   : 1.0")
     print(f"  Class weights: ON (inverse frequency)")
     print(f"{'='*60}\n")
 
@@ -151,8 +156,8 @@ def main():
     file_index = build_file_index(VIDEO_SEARCH_DIRS)
     print(f"   Found {len(file_index)} unique video files\n")
 
-    # ── 2. Load dataset WITH augmentation + multi-clip ──
-    print("[LOAD] Loading training dataset (augmented, multi-clip)...")
+    # ── 2. Load dataset with multi-clip sampling ──
+    print("[LOAD] Loading training dataset...")
     full_dataset = UCFCrimeDataset(
         split="train",
         file_index=file_index,
@@ -214,6 +219,7 @@ def main():
     best_val_loss = float("inf")
     best_val_acc = 0.0
     epochs_no_improve = 0
+    train_history = []
 
     epoch_bar = tqdm(range(1, args.epochs + 1), desc="Epochs",
                      bar_format="{l_bar}{bar:30}{r_bar}")
@@ -229,6 +235,16 @@ def main():
 
         elapsed = time.time() - t0
         current_lr = optimizer.param_groups[0]["lr"]
+
+        train_history.append({
+            "epoch": epoch,
+            "train_loss": round(train_loss, 4),
+            "train_acc": round(train_acc, 4),
+            "val_loss": round(val_loss, 4),
+            "val_acc": round(val_acc, 4),
+            "lr": current_lr,
+            "time_s": round(elapsed, 1),
+        })
 
         epoch_bar.set_postfix(
             tr_loss=f"{train_loss:.3f}", tr_acc=f"{train_acc:.3f}",
@@ -255,11 +271,22 @@ def main():
                            f"{args.patience} epochs without improvement")
                 break
 
+    # Save training log
+    log_data = {
+        "best_val_loss": round(best_val_loss, 4),
+        "best_val_acc": round(best_val_acc, 4),
+        "epochs_run": len(train_history),
+        "history": train_history,
+    }
+    with open(TRAIN_LOG_PATH, "w") as f:
+        json.dump(log_data, f, indent=2)
+
     print(f"\n{'='*60}")
     print(f"  Training complete!")
     print(f"  Best val loss: {best_val_loss:.4f}")
     print(f"  Best val accuracy: {best_val_acc:.3f}")
     print(f"  Weights saved to: {WEIGHTS_PATH}")
+    print(f"  Log saved to: {TRAIN_LOG_PATH}")
     print(f"{'='*60}\n")
 
 

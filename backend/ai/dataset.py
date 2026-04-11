@@ -10,7 +10,6 @@ The dataset builds a filename->path index once, then resolves each
 video by its basename for fast, reliable lookups.
 
 Supports:
-- Data augmentation (random crop, horizontal flip, color jitter)
 - Multi-clip sampling (multiple temporal windows per video)
 """
 
@@ -24,7 +23,7 @@ import cv2
 import torch
 from torch.utils.data import Dataset
 
-# Add parent dir so config is importable when running from backend/
+# Add parent dir so config is importable when run from backend/
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import (
@@ -72,12 +71,6 @@ class UCFCrimeDataset(Dataset):
     Each sample returns:
         clip  -  FloatTensor of shape (CLIP_LENGTH, 3, H, W)
         label -  int class index  (0 = Normal, 1..13 = anomaly types)
-
-    Augmentation (training only):
-        - Random temporal offset (different clip window each call)
-        - Random horizontal flip
-        - Random brightness/contrast jitter
-        - Random crop (128->112) instead of direct resize
     """
 
     def __init__(
@@ -89,15 +82,6 @@ class UCFCrimeDataset(Dataset):
         augment: bool = False,
         file_index: dict[str, Path] | None = None,
     ):
-        """
-        Args:
-            split:  'train' or 'test'
-            clip_length:  number of frames per clip
-            frame_size:  (W, H) to resize frames
-            clips_per_video:  how many clips to sample per video (multiplies dataset size)
-            augment:  whether to apply data augmentation
-            file_index:  pre-built filename->path map (avoids rescanning)
-        """
         super().__init__()
         self.clip_length = clip_length
         self.frame_size = frame_size
@@ -131,7 +115,6 @@ class UCFCrimeDataset(Dataset):
                 self._videos.append((abs_path, label))
 
         # Expand samples for multi-clip sampling
-        # Each video appears clips_per_video times; different clip each time due to randomness
         self.samples: list[tuple[Path, int]] = []
         for video_path, label in self._videos:
             for _ in range(self.clips_per_video):
@@ -142,47 +125,10 @@ class UCFCrimeDataset(Dataset):
         print(f"[OK] [{split}] Loaded {len(self._videos)} videos "
               f"x {clips_per_video} clips = {len(self.samples)} samples")
 
-    # ── augmentation helpers ──
-
-    def _augment_frame(self, frame: np.ndarray) -> np.ndarray:
-        """Apply augmentation to a single frame (H, W, C) in [0, 1] range."""
-        # Random horizontal flip (applied consistently per clip via seed)
-        if self._flip:
-            frame = np.ascontiguousarray(frame[:, ::-1, :])
-
-        # Random brightness shift (-0.15 to +0.15)
-        frame = frame + self._brightness
-        frame = np.clip(frame, 0.0, 1.0)
-
-        # Random contrast (0.8 to 1.2)
-        mean = frame.mean()
-        frame = (frame - mean) * self._contrast + mean
-        frame = np.clip(frame, 0.0, 1.0)
-
-        return frame
-
-    def _random_crop(self, frame: np.ndarray, target_h: int, target_w: int) -> np.ndarray:
-        """Random crop from a slightly larger frame (training) or center crop (test)."""
-        h, w = frame.shape[:2]
-        if h <= target_h or w <= target_w:
-            return frame
-
-        if self.augment:
-            y = random.randint(0, h - target_h)
-            x = random.randint(0, w - target_w)
-        else:
-            y = (h - target_h) // 2
-            x = (w - target_w) // 2
-
-        return frame[y:y + target_h, x:x + target_w]
-
-    # ── clip reading ──
-
     def _read_clip(self, video_path: Path) -> np.ndarray | None:
         """
-        Read a clip of `clip_length` frames from a video.
-        Training: random temporal window + augmentation
-        Testing:  uniform sampling across entire video
+        Read a clip of clip_length frames from a video.
+        Uses uniform sampling across the entire video.
         """
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
@@ -193,29 +139,15 @@ class UCFCrimeDataset(Dataset):
             cap.release()
             return None
 
-        # --- Frame sampling strategy ---
         if self.augment:
-            # Random contiguous window, then sample uniformly within it
+            # Random temporal window for training diversity
             window_size = max(self.clip_length, total // 2)
             window_size = min(window_size, total)
             start = random.randint(0, total - window_size)
             indices = np.linspace(start, start + window_size - 1,
                                   self.clip_length, dtype=int)
         else:
-            # Uniform across entire video (deterministic)
             indices = np.linspace(0, total - 1, self.clip_length, dtype=int)
-
-        # Pre-generate augmentation params (consistent across clip)
-        if self.augment:
-            self._flip = random.random() < 0.5
-            self._brightness = random.uniform(-0.15, 0.15)
-            self._contrast = random.uniform(0.8, 1.2)
-
-        # Resize to slightly larger than target for random cropping
-        if self.augment:
-            load_size = (self.frame_size[0] + 16, self.frame_size[1] + 16)  # 128x128
-        else:
-            load_size = self.frame_size  # 112x112
 
         frames = []
         for idx in indices:
@@ -225,14 +157,9 @@ class UCFCrimeDataset(Dataset):
                 cap.release()
                 return None
 
-            frame = cv2.resize(frame, load_size)
+            frame = cv2.resize(frame, self.frame_size)
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             frame = frame.astype(np.float32) / 255.0
-
-            # Apply augmentation before normalization
-            if self.augment:
-                frame = self._augment_frame(frame)
-                frame = self._random_crop(frame, self.frame_size[1], self.frame_size[0])
 
             # ImageNet normalization
             mean = np.array([0.485, 0.456, 0.406])
@@ -243,8 +170,6 @@ class UCFCrimeDataset(Dataset):
 
         cap.release()
         return np.array(frames, dtype=np.float32)
-
-    # ── Dataset interface ──
 
     def __len__(self) -> int:
         return len(self.samples)

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { gsap } from 'gsap';
 import { useAuth } from '../context/AuthContext';
@@ -7,10 +7,7 @@ import DashboardLayout from '../components/DashboardLayout';
 import '../pages/Dashboard.css';
 import './EventHistory.css';
 
-const chartData = {
-    labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
-    values: [0, 0, 0, 0, 0, 0, 0, 0],
-};
+
 
 const LockIcon = () => (
     <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -57,6 +54,32 @@ const EventHistory = () => {
         fetchIncidents();
     }, [isAuthenticated, user]);
 
+    // Build chartData dynamically from real incidents
+    const chartData = useMemo(() => {
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const now = new Date();
+        // Show last 8 months
+        const labels = [];
+        const counts = [];
+        for (let i = 7; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            labels.push(monthNames[d.getMonth()]);
+            counts.push(0);
+        }
+        // Count incidents per month
+        for (const inc of incidents) {
+            const det = new Date(inc.detected_at);
+            for (let i = 7; i >= 0; i--) {
+                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                if (det.getMonth() === d.getMonth() && det.getFullYear() === d.getFullYear()) {
+                    counts[7 - i]++;
+                    break;
+                }
+            }
+        }
+        return { labels, values: counts };
+    }, [incidents]);
+
     // Draw chart
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -74,12 +97,14 @@ const EventHistory = () => {
         const padL = 40, padR = 20, padT = 10, padB = 30;
         const chartW = W - padL - padR;
         const chartH = H - padT - padB;
-        const maxVal = 100;
+        const rawMax = Math.max(...chartData.values, 1);
+        const maxVal = Math.ceil(rawMax * 1.2) || 5; // 20% headroom, min 5
 
         ctx.clearRect(0, 0, W, H);
 
-        // Y-axis labels + grid lines
-        const ySteps = [0, 20, 40, 60, 80, 100];
+        // Y-axis labels + grid lines (auto-scale)
+        const yStepCount = 5;
+        const ySteps = Array.from({ length: yStepCount + 1 }, (_, i) => Math.round((maxVal / yStepCount) * i));
         ctx.font = '11px Inter, sans-serif';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
@@ -143,7 +168,7 @@ const EventHistory = () => {
             ctx.fillStyle = '#0a0e17';
             ctx.fill();
         });
-    }, []);
+    }, [incidents, chartData]);
 
     // GSAP entrance
     useEffect(() => {
@@ -184,6 +209,32 @@ const EventHistory = () => {
 
     // Get unique event types for filter dropdown
     const eventTypes = [...new Set(incidents.map(i => i.event_type))];
+    
+    // Get unique cameras for filter dropdown
+    const cameraIds = [...new Set(incidents.map(i => i.camera_id).filter(Boolean))];
+
+    const handleClearHistory = async () => {
+        if (!window.confirm('Are you sure you want to permanently delete all your event history?')) return;
+        
+        // Use .select() to verify rows were actually deleted (returns deleted rows)
+        const { data, error } = await supabase
+            .from('incidents')
+            .delete()
+            .eq('user_id', user.id)
+            .select();
+            
+        if (error) {
+            alert('Failed to clear history: ' + error.message);
+            return;
+        }
+
+        // If no error but also 0 rows deleted (when incidents existed), it's likely a missing RLS policy
+        if ((!data || data.length === 0) && incidents.length > 0) {
+            alert('Your history appears to have cleared locally, but the database rejected the deletion.\n\nTo fix this: Go to your Supabase Dashboard -> Authentication -> Policies (or Table Editor -> incidents -> RLS) and add a "Enable delete for users based on user_id" policy for the incidents table.');
+        }
+
+        setIncidents([]); // Clear local state anyway so UI is responsive
+    };
 
     return (
         <DashboardLayout title="AI History & Incident Analysis" subtitle="Real-time monitoring and threat detection active.">
@@ -191,7 +242,19 @@ const EventHistory = () => {
 
                 {/* === Filters === */}
                 <div className="eh-filters">
-                    <h3 className="eh-filters-title">Event Filters</h3>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                        <h3 className="eh-filters-title" style={{ margin: 0 }}>Event Filters</h3>
+                        {!isLocked && (
+                            <button 
+                                onClick={handleClearHistory}
+                                style={{ background: 'rgba(255, 60, 60, 0.1)', color: '#ff4d4d', border: '1px solid rgba(255, 60, 60, 0.2)', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', transition: 'all 0.2s' }}
+                                onMouseEnter={e => e.target.style.background = 'rgba(255, 60, 60, 0.2)'}
+                                onMouseLeave={e => e.target.style.background = 'rgba(255, 60, 60, 0.1)'}
+                            >
+                                Clear History
+                            </button>
+                        )}
+                    </div>
                     <div className="eh-filters-row">
                         <div className="eh-filter-group">
                             <label>Date Range</label>
@@ -214,10 +277,9 @@ const EventHistory = () => {
                             <label>Camera</label>
                             <select value={camera} onChange={e => setCamera(e.target.value)}>
                                 <option value="all">All Cameras</option>
-                                <option value="CAM-01">CAM-01</option>
-                                <option value="CAM-02">CAM-02</option>
-                                <option value="CAM-03">CAM-03</option>
-                                <option value="CAM-04">CAM-04</option>
+                                {cameraIds.map(cam => (
+                                    <option key={cam} value={cam}>{cam}</option>
+                                ))}
                             </select>
                         </div>
                         <div className="eh-filter-group eh-filter-slider">

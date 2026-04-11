@@ -610,7 +610,14 @@ const VideoAnalysis = () => {
                 <div className="va-player-area">
                     <div className="va-video-container" ref={videoContainerRef}>
                         {/* Actual Video Element or Placeholder */}
-                        {videoUrl ? (
+                        {isProcessing ? (
+                            <img
+                                src={`/api/analyze/${jobId}/mjpeg`}
+                                className="va-video-element"
+                                alt="Live AI Processing stream"
+                                style={{ objectFit: 'contain', backgroundColor: '#000' }}
+                            />
+                        ) : videoUrl ? (
                             <video
                                 ref={videoRef}
                                 src={videoUrl}
@@ -635,7 +642,7 @@ const VideoAnalysis = () => {
                                 </div>
                             </div>
                         )}
-
+                        
                         {/* Analyzing scan line overlay */}
                         {isProcessing && (
                             <div className="va-scan-overlay">

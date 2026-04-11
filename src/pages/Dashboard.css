@@ -961,4 +961,183 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* ===== Crime Alert Toast ===== */
+.dash-crime-toast {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    z-index: 9999;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 18px 20px;
+    min-width: 340px;
+    max-width: 440px;
+    background: linear-gradient(135deg, rgba(220, 38, 38, 0.15), rgba(185, 28, 28, 0.12));
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    border-radius: 14px;
+    backdrop-filter: blur(16px);
+    box-shadow: 0 8px 40px rgba(220, 38, 38, 0.3), 0 0 60px rgba(248, 113, 113, 0.08);
+    animation: crimeToastPulse 2s ease-in-out infinite;
+}
+
+@keyframes crimeToastPulse {
+    0%, 100% { box-shadow: 0 8px 40px rgba(220, 38, 38, 0.3), 0 0 60px rgba(248, 113, 113, 0.08); }
+    50% { box-shadow: 0 8px 50px rgba(220, 38, 38, 0.45), 0 0 80px rgba(248, 113, 113, 0.15); }
+}
+
+.dash-crime-toast-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: rgba(248, 113, 113, 0.15);
+    border: 1px solid rgba(248, 113, 113, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #f87171;
+    flex-shrink: 0;
+}
+
+.dash-crime-toast-body {
+    flex: 1;
+}
+
+.dash-crime-toast-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #fca5a5;
+    margin-bottom: 4px;
+}
+
+.dash-crime-toast-meta {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.6);
+    margin-bottom: 4px;
+}
+
+.dash-crime-toast-meta strong {
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.dash-crime-toast-msg {
+    font-size: 0.72rem;
+    color: rgba(255, 255, 255, 0.45);
+    line-height: 1.4;
+}
+
+.dash-crime-toast-close {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    border: none;
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.4);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
+
+.dash-crime-toast-close:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+}
+
+/* ===== Live Alerts Log ===== */
+.dash-alerts-log {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 20px 24px;
+    margin-top: 24px;
+}
+
+.dash-alerts-log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+}
+
+.dash-alerts-log-header h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.dash-alerts-log-count {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #f87171;
+    background: rgba(248, 113, 113, 0.12);
+    padding: 2px 10px;
+    border-radius: var(--radius-full);
+    letter-spacing: 0.05em;
+}
+
+.dash-alerts-log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.dash-alerts-log-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: var(--radius-md);
+    background: rgba(248, 113, 113, 0.04);
+    border: 1px solid rgba(248, 113, 113, 0.08);
+    transition: var(--transition);
+}
+
+.dash-alerts-log-item:hover {
+    background: rgba(248, 113, 113, 0.08);
+    border-color: rgba(248, 113, 113, 0.15);
+}
+
+.dash-alerts-log-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #f87171;
+    flex-shrink: 0;
+    animation: pulse-glow 2s infinite;
+}
+
+.dash-alerts-log-class {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #fca5a5;
+    flex: 1;
+}
+
+.dash-alerts-log-cam {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+}
+
+.dash-alerts-log-conf {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #f87171;
+    background: rgba(248, 113, 113, 0.1);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+}
+
+.dash-alerts-log-time {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    font-family: 'Courier New', monospace;
+}
 

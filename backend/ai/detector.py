@@ -1,11 +1,15 @@
 """
 Anomaly Detection Pipeline.
 
-Processes video files through the ResNet18+LSTM model:
-1. Load video → extract clips (16-frame segments at 112×112)
-2. Run ResNet18 per frame → LSTM over sequence → multi-class softmax
-3. Classify into 14 UCF-Crime classes
-4. Map to frontend event types (ShelfTampering, Loitering, SuspiciousBehavior)
+Dual-pipeline architecture:
+  1. ResNet18+LSTM: Scene-level classification of video clips into 14 UCF-Crime classes
+  2. YOLOv8n: Person detection & counting per frame (replaces HOG)
+
+Processes video files through:
+  1. Load video -> extract clips (16-frame segments at 112x112)
+  2. Run ResNet18 per frame -> LSTM over sequence -> multi-class softmax
+  3. Run YOLOv8n on sample frames -> count people
+  4. Map classifications to frontend event types
 
 Falls back to mock inference when model weights are unavailable.
 """
@@ -24,7 +28,8 @@ from config import (
 class AnomalyDetector:
     """
     Main anomaly detection class.
-    Loads the model once and provides methods to analyze videos.
+    Loads ResNet18+LSTM once and provides methods to analyze videos.
+    Uses YOLOv8n for person counting.
     """
 
     def __init__(self):
@@ -33,7 +38,7 @@ class AnomalyDetector:
         self._load_model()
 
     def _load_model(self):
-        """Attempt to load the trained model weights."""
+        """Attempt to load the trained ResNet18+LSTM weights."""
         import torch
         from ai.model import load_model
 
@@ -44,12 +49,12 @@ class AnomalyDetector:
             self.device = "mps"
 
         if os.path.exists(MODEL_WEIGHTS_PATH):
-            print(f"[OK] Loading model weights from {MODEL_WEIGHTS_PATH}")
+            print(f"[OK] Loading ResNet18+LSTM model from {MODEL_WEIGHTS_PATH}")
             self.model = load_model(MODEL_WEIGHTS_PATH, NUM_CLASSES, self.device)
             print(f"   Model loaded on device: {self.device}")
         else:
             print(f"[WARN] Model weights not found at {MODEL_WEIGHTS_PATH}")
-            print("   Using mock inference. Train the model and set MODEL_WEIGHTS_PATH.")
+            print("   Using mock inference. Train the model first.")
             self.model = None
 
     def _extract_clips(self, video_path: str) -> list:
@@ -79,7 +84,7 @@ class AnomalyDetector:
             mean = np.array([0.485, 0.456, 0.406])
             std = np.array([0.229, 0.224, 0.225])
             frame = (frame - mean) / std
-            # HWC → CHW
+            # HWC -> CHW
             frame = frame.transpose(2, 0, 1)
             frames.append(frame)
 
@@ -95,7 +100,7 @@ class AnomalyDetector:
         return clips, total_frames, fps
 
     def _run_inference(self, clips: list) -> list:
-        """Run the model on extracted clips. Returns list of (class_idx, confidence)."""
+        """Run the ResNet18+LSTM model on extracted clips. Returns list of (class_idx, confidence)."""
         import torch
 
         if self.model is None:
@@ -129,41 +134,81 @@ class AnomalyDetector:
                 results.append((class_idx, conf))
         return results
 
+    def _count_people_yolo(self, video_path: str, sample_frames: int = 5) -> int:
+        """
+        Count people in a video using YOLOv8n.
+        Samples a few frames evenly spread across the video for speed.
+        Returns the maximum concurrent person count observed.
+        """
+        import cv2
+        try:
+            from ai.live_tracker import count_people_in_frame
+        except ImportError:
+            return 0
+
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return 0
+
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total == 0:
+            cap.release()
+            return 0
+
+        # Sample frames evenly across the video
+        indices = np.linspace(0, total - 1, min(sample_frames, total), dtype=int)
+        max_count = 0
+
+        for idx in indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+            ret, frame = cap.read()
+            if not ret:
+                continue
+            count = count_people_in_frame(frame)
+            max_count = max(max_count, count)
+
+        cap.release()
+        return max_count
+
     def analyze_video(self, video_path: str) -> dict:
         """
         Full analysis pipeline for a single video.
-        Returns dict matching the AnalysisResponse schema.
+        Uses ResNet18+LSTM for anomaly classification + YOLOv8n for person counting.
         """
-        import random
-
         print(f"[SCAN] Analyzing video: {video_path}")
 
-        # Extract clips
+        # Extract clips for ResNet18+LSTM
         try:
             clips, total_frames, fps = self._extract_clips(video_path)
         except Exception as e:
             print(f"[ERROR] Failed to extract clips: {e}")
-            # Return mock results on video read failure
             clips = []
             total_frames = 500
             fps = 30
 
         if not clips:
-            # Generate mock clips for inference
             num_mock_clips = max(1, total_frames // CLIP_LENGTH)
             predictions = self._mock_inference(num_mock_clips)
         else:
             predictions = self._run_inference(clips)
 
+        # Count people using YOLO (instead of random numbers)
+        people_detected = self._count_people_yolo(video_path, sample_frames=8)
+
         # Process predictions
-        people_detected = random.randint(50, 300)
-        objects_detected = random.randint(500, 2000)
         detection_logs = []
         events = []
 
         detection_logs.append({
             "time": "00:00:00",
-            "text": f"Video loaded — {total_frames} frames at {fps:.0f} FPS",
+            "text": f"Video loaded - {total_frames} frames at {fps:.0f} FPS",
+            "type": "info",
+            "confidence": 100,
+        })
+
+        detection_logs.append({
+            "time": "00:00:00",
+            "text": f"YOLO person detection: {people_detected} people (max concurrent)",
             "type": "info",
             "confidence": 100,
         })
@@ -174,22 +219,22 @@ class AnomalyDetector:
             timestamp = f"{int(frame_num / fps // 60):02d}:{int(frame_num / fps % 60):02d}:{int((frame_num / fps * 100) % 100):02d}"
 
             if class_name == "Normal":
-                if i % 5 == 0:  # Log every 5th normal clip
+                if i % 5 == 0:
                     detection_logs.append({
                         "time": timestamp,
-                        "text": f"Normal activity — Frame {frame_num} ({conf}%)",
+                        "text": f"Normal activity - Frame {frame_num} ({conf}%)",
                         "type": "info",
                         "confidence": conf,
                     })
                 continue
 
-            # Anomaly detected!
+            # Anomaly detected
             frontend_type = UCF_TO_FRONTEND_EVENT.get(class_name, "SuspiciousBehavior")
 
             severity = "danger" if conf > 85 else "warning"
             detection_logs.append({
                 "time": timestamp,
-                "text": f"{frontend_type} — Frame {frame_num} — {class_name} ({conf}%)",
+                "text": f"{frontend_type} - Frame {frame_num} - {class_name} ({conf}%)",
                 "type": severity,
                 "confidence": conf,
             })
@@ -202,26 +247,27 @@ class AnomalyDetector:
                 "confidence": conf,
                 "frame_number": frame_num,
                 "bbox": {
-                    "x": random.randint(50, 300),
-                    "y": random.randint(50, 200),
-                    "w": random.randint(100, 250),
-                    "h": random.randint(150, 350),
+                    "x": 0,
+                    "y": 0,
+                    "w": 0,
+                    "h": 0,
                 },
             })
 
         suspicious_events = len(events)
+        duration_str = f"{int(total_frames / fps // 60):02d}:{int(total_frames / fps % 60):02d}:00"
         detection_logs.append({
-            "time": f"{int(total_frames / fps // 60):02d}:{int(total_frames / fps % 60):02d}:00",
-            "text": f"Analysis complete — {suspicious_events} anomalies found in {len(predictions)} clips",
+            "time": duration_str,
+            "text": f"Analysis complete - {suspicious_events} anomalies found in {len(predictions)} clips",
             "type": "info" if suspicious_events == 0 else "warning",
             "confidence": 100,
         })
 
-        print(f"[OK] Analysis complete: {suspicious_events} anomalies in {len(predictions)} clips")
+        print(f"[OK] Analysis complete: {suspicious_events} anomalies, {people_detected} people detected")
 
         return {
             "people_detected": people_detected,
-            "objects_detected": objects_detected,
+            "objects_detected": people_detected,  # YOLO-based count
             "suspicious_events": suspicious_events,
             "detection_logs": detection_logs,
             "events": events,

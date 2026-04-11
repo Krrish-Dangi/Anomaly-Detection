@@ -4,25 +4,305 @@ WebSocket routes for camera streaming infrastructure.
 Two endpoint types:
   - WS /ws/ingest/{camera_id}  — Edge devices (phones) push frames here
   - WS /ws/live/{camera_id}    — Dashboard clients listen for live frames here
+
+Hybrid Detection Pipeline:
+  1. YOLOv8-Pose (skeletal tracking) → wrist velocity + interaction detection
+  2. ResNet18+LSTM (temporal context) → UCF-Crime class probabilities
+  3. Adaptive Weighted Fusion → combines both models intelligently
+  4. Temporal Smoothing + Cooldown → prevents spam and false positives
 """
 
 import asyncio
 import json
+import os
+import uuid
+import time
+import threading
 import random
 import base64
+import cv2
+import numpy as np
+from collections import deque
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, List
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from config import UCF_CRIME_CLASSES, UCF_TO_FRONTEND_EVENT
+from config import (
+    UCF_CRIME_CLASSES, UCF_TO_FRONTEND_EVENT,
+    CLIP_LENGTH, FRAME_SIZE, NUM_CLASSES, BASE_DIR,
+)
 
 router = APIRouter(tags=["WebSocket"])
 
 
 # ─────────────────────────────────────────────
+# Global AI caches (loaded once, shared across cameras)
+# ─────────────────────────────────────────────
+
+_trackers: dict[str, "LiveTracker"] = {}
+
+# LSTM detector singleton — heavy, loaded once
+_lstm_cache = {"instance": None, "attempted": False}
+
+
+def _get_lstm_detector():
+    """Get or create a cached AnomalyDetector (ResNet18+LSTM) instance."""
+    if not _lstm_cache["attempted"]:
+        _lstm_cache["attempted"] = True
+        try:
+            from ai.detector import AnomalyDetector
+            det = AnomalyDetector()
+            if det.model is not None:
+                _lstm_cache["instance"] = det
+                print("[OK] LSTM AnomalyDetector loaded and cached for live streams")
+            else:
+                print("[WARN] LSTM model weights not found — live UCF detection will use mock")
+                _lstm_cache["instance"] = det  # still usable for mock
+        except Exception as e:
+            print(f"[WARN] Failed to load LSTM detector for live streams: {e}")
+            _lstm_cache["instance"] = None
+    return _lstm_cache["instance"]
+
+
+def _get_tracker(camera_id: str):
+    """Get or create a LiveTracker (YOLO-Pose) for a camera."""
+    if camera_id not in _trackers:
+        from ai.live_tracker import LiveTracker
+        _trackers[camera_id] = LiveTracker(confidence=0.4, loiter_time_sec=10.0)
+    return _trackers[camera_id]
+
+
+# ─────────────────────────────────────────────
+# Per-camera LSTM frame buffer for UCF detection
+# ─────────────────────────────────────────────
+
+# camera_id -> list of preprocessed numpy frames (CHW float32)
+_lstm_frame_buffers: dict[str, list] = {}
+# camera_id -> list of raw prediction probability arrays (for temporal smoothing)
+_lstm_prob_buffers: dict[str, list] = {}
+# camera_id -> raw frame idx counter
+_lstm_frame_counters: dict[str, int] = {}
+# camera_id -> threading.Lock to protect buffer
+_lstm_locks: dict[str, threading.Lock] = {}
+# camera_id -> latest crime detection results for dashboard stats broadcast
+_live_crime_stats: dict[str, dict] = {}
+
+# How often to run LSTM inference (process a clip every N ingested frames)
+# With camera at ~7.5 FPS and CLIP_LENGTH=16, every 16 frames ≈ 2.1 seconds
+# We use a stride of 8 (overlap 50%) so inference runs every ~1 second
+LSTM_STRIDE = max(CLIP_LENGTH // 2, 4)
+
+
+# ─────────────────────────────────────────────
+# Hybrid Fusion Engine State (per camera)
+# ─────────────────────────────────────────────
+
+# camera_id -> latest pose heuristic data from LiveTracker
+_pose_data: dict[str, dict] = {}
+
+# camera_id -> deque of smoothed confidence values for temporal gating
+_hybrid_conf_buffers: dict[str, deque] = {}
+
+# camera_id -> timestamp of last alert (for cooldown)
+_last_alert_times: dict[str, float] = {}
+
+# Fusion Constants
+CONF_THRESHOLD = 0.90        # minimum smoothed confidence to trigger alert
+COOLDOWN_SECONDS = 3.0       # minimum seconds between consecutive alerts
+SMOOTHING_ALPHA = 0.6        # exponential smoothing weight for current frame
+MOTION_THRESHOLD = 15.0      # avg wrist velocity to consider as "motion present"
+
+
+def _preprocess_frame_for_lstm(frame_bgr: np.ndarray) -> np.ndarray:
+    """Preprocess a single BGR frame for the ResNet18+LSTM model."""
+    resized = cv2.resize(frame_bgr, FRAME_SIZE)
+    resized = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+    resized = resized.astype(np.float32) / 255.0
+    mean = np.array([0.485, 0.456, 0.406])
+    std = np.array([0.229, 0.224, 0.225])
+    resized = (resized - mean) / std
+    resized = resized.transpose(2, 0, 1)  # HWC -> CHW
+    return resized
+
+
+def _run_lstm_on_clip(camera_id: str, clip_frames: np.ndarray) -> dict | None:
+    """
+    Run LSTM inference on a single clip.
+    Returns the raw LSTM result dict (class, confidence) WITHOUT fusion.
+    The fusion engine handles the final decision separately.
+    """
+    detector = _get_lstm_detector()
+    if detector is None:
+        return None
+
+    import torch
+    num_classes = len(UCF_CRIME_CLASSES)
+
+    # ─── MOTION GATE ───
+    # If the scene is completely static, the LSTM hallucinates crimes.
+    motion_score = float(np.mean(np.abs(clip_frames[-1] - clip_frames[0])))
+
+    if motion_score < 0.15:
+        return {"lstm_class": "Normal", "lstm_conf": 0.0, "lstm_probs": None}
+
+    if detector.model is not None:
+        detector.model.eval()
+        with torch.no_grad():
+            tensor = torch.FloatTensor(clip_frames).unsqueeze(0).to(detector.device)
+            logits = detector.model(tensor)
+            probs = torch.softmax(logits, dim=1).cpu().numpy()[0]  # Shape: (14,)
+    else:
+        # Mock inference probabilities
+        probs = np.zeros(num_classes)
+        if random.random() < 0.85:
+            probs[0] = 1.0  # Normal
+        else:
+            class_idx = random.randint(1, num_classes - 1)
+            probs[class_idx] = random.uniform(0.70, 0.97)
+            probs[0] = 1.0 - probs[class_idx]
+
+    class_idx = int(np.argmax(probs))
+    conf = float(probs[class_idx])
+    class_name = UCF_CRIME_CLASSES[class_idx]
+
+    return {
+        "lstm_class": class_name,
+        "lstm_conf": conf,
+        "lstm_probs": probs,
+    }
+
+
+def compute_hybrid_alert(
+    pose_conf: float,
+    lstm_conf: float,
+    lstm_class: str,
+    motion_score: float,
+    person_count: int,
+    interaction_score: int,
+) -> dict:
+    """
+    Adaptive Weighted Fusion Engine.
+
+    Combines YOLOv8-Pose heuristic confidence with LSTM temporal confidence
+    using dynamic weighting based on scene conditions.
+
+    Returns:
+        {
+            "final_conf": float,
+            "final_class": str,
+            "decision_mode": str,
+            "reason_tags": [str],
+            "severity_level": str,
+        }
+    """
+    reason_tags = []
+
+    # ─── Adaptive Weighting ───
+    if pose_conf > 0.85:
+        final_conf = 0.7 * pose_conf + 0.3 * lstm_conf
+        decision_mode = "POSE_DOMINANT"
+        reason_tags.append("High wrist velocity")
+    elif motion_score > MOTION_THRESHOLD:
+        final_conf = 0.6 * pose_conf + 0.4 * lstm_conf
+        decision_mode = "MOTION_BLEND"
+    else:
+        final_conf = 0.4 * pose_conf + 0.6 * lstm_conf
+        decision_mode = "LSTM_DOMINANT"
+
+    # ─── Class Selection ───
+    if pose_conf > lstm_conf:
+        final_class = "Fighting"
+    else:
+        final_class = lstm_class
+
+    # ─── False Positive Killers ───
+    if person_count == 1:
+        final_conf *= 0.5
+        reason_tags.append("Single person penalty applied")
+    
+    if interaction_score == 0:
+        final_conf *= 0.6
+        reason_tags.append("No close interaction detected")
+    else:
+        reason_tags.append("Close proximity interaction")
+
+    # ─── Confidence Cap ───
+    final_conf = min(final_conf, 0.99)
+
+    # ─── Severity Label ───
+    if final_conf > 0.90:
+        severity_level = "HIGH"
+    elif final_conf > 0.75:
+        severity_level = "MEDIUM"
+    else:
+        severity_level = "LOW"
+
+    return {
+        "final_conf": round(final_conf, 4),
+        "final_class": final_class,
+        "decision_mode": decision_mode,
+        "reason_tags": reason_tags,
+        "severity_level": severity_level,
+    }
+
+
+# ─────────────────────────────────────────────
+# File-based event logging
+# ─────────────────────────────────────────────
+
+LOGS_DIR = BASE_DIR / "logs" / "cameras"
+
+
+def _log_event_to_file(camera_id: str, event_data: dict):
+    """Append a JSON event line to backend/logs/cameras/<camera_id>/event.log"""
+    cam_log_dir = LOGS_DIR / camera_id
+    cam_log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = cam_log_dir / "event.log"
+    entry = {
+        "timestamp": event_data.get("timestamp", datetime.now(timezone.utc).isoformat()),
+        "event_id": event_data.get("event_id", str(uuid.uuid4())),
+        "ucf_class": event_data.get("ucf_class", "Unknown"),
+        "type": event_data.get("type", "SuspiciousBehavior"),
+        "confidence": event_data.get("confidence", 0),
+        "camera_id": camera_id,
+        "message": event_data.get("message", ""),
+        "severity_level": event_data.get("severity_level", ""),
+        "decision_mode": event_data.get("decision_mode", ""),
+        "reason_tags": event_data.get("reason_tags", []),
+    }
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+    print(f"[LOG] Event written to {log_file}: {entry['ucf_class']} ({entry['confidence']}%)")
+
+
+def _save_event_to_db(event_data: dict):
+    """Save a detected crime event to the local SQLite database."""
+    try:
+        from database import SessionLocal
+        from models import Event
+        db = SessionLocal()
+        event = Event(
+            event_id=event_data.get("event_id", str(uuid.uuid4())),
+            type=event_data.get("type", "SuspiciousBehavior"),
+            ucf_class=event_data.get("ucf_class", "Unknown"),
+            camera_id=event_data.get("camera_id", "LIVE"),
+            timestamp=datetime.now(timezone.utc),
+            confidence=event_data.get("confidence", 0),
+            frame_number=0,
+        )
+        db.add(event)
+        db.commit()
+        db.close()
+    except Exception as e:
+        print(f"[WARN] Failed to save live event to DB: {e}")
+
+
+# ─────────────────────────────────────────────
 # Connection Manager
 # ─────────────────────────────────────────────
+
 class ConnectionManager:
     """
     Manages two pools of WebSocket connections per camera_id:
@@ -91,12 +371,250 @@ class ConnectionManager:
                 c for c in self.live_clients[camera_id] if c is not d
             ]
 
+    async def broadcast_alert(self, camera_id: str, alert_data: dict, data: bytes):
+        """Send an explicit alert event along with the snapshot bytes to all viewers."""
+        if camera_id not in self.live_clients:
+            return
+        dead = []
+        b64 = base64.b64encode(data).decode("ascii")
+        for client in self.live_clients[camera_id]:
+            try:
+                await client.send_json({
+                    "type": "alert",
+                    "camera_id": camera_id,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "frame": b64,
+                    "alert": alert_data
+                })
+            except Exception:
+                dead.append(client)
+        
+        # Clean up dead connections
+        for d in dead:
+            self.live_clients[camera_id] = [
+                c for c in self.live_clients[camera_id] if c is not d
+            ]
+
+    async def broadcast_crime_alert(self, camera_id: str, crime_data: dict, frame_bytes: bytes):
+        """Broadcast a hybrid crime detection alert to all viewers of a camera."""
+        if camera_id not in self.live_clients:
+            return
+        dead = []
+        b64 = base64.b64encode(frame_bytes).decode("ascii")
+        for client in self.live_clients[camera_id]:
+            try:
+                await client.send_json({
+                    "type": "crime_alert",
+                    "camera_id": camera_id,
+                    "timestamp": crime_data.get("timestamp", datetime.now(timezone.utc).isoformat()),
+                    "frame": b64,
+                    "alert": crime_data,
+                })
+            except Exception:
+                dead.append(client)
+        for d in dead:
+            self.live_clients[camera_id] = [
+                c for c in self.live_clients[camera_id] if c is not d
+            ]
+
     def get_active_cameras(self) -> list:
         """Return list of camera_ids that have an active ingest stream."""
         return list(self.ingest_connections.keys())
 
 
 manager = ConnectionManager()
+
+
+# ─────────────────────────────────────────────
+# Background LSTM inference thread per camera
+# ─────────────────────────────────────────────
+
+# Pending crime alerts to broadcast (filled by bg thread, consumed by async loop)
+# camera_id -> list of crime_data_dicts
+_pending_crime_alerts: dict[str, list] = {}
+_pending_alerts_lock = threading.Lock()
+
+
+def _lstm_inference_loop(camera_id: str):
+    """
+    Background thread that continuously checks the frame buffer for camera_id.
+    When enough frames are accumulated, runs LSTM and then fuses with pose data
+    through the hybrid engine. Queues alerts if the fusion output passes all filters.
+    """
+    print(f"[HYBRID] Inference thread started for camera '{camera_id}'")
+
+    while True:
+        lock = _lstm_locks.get(camera_id)
+        if lock is None:
+            break  # camera disconnected
+
+        time.sleep(0.3)  # Check every 300ms
+
+        with lock:
+            buf = _lstm_frame_buffers.get(camera_id, [])
+            if len(buf) < CLIP_LENGTH:
+                continue
+            # Take a clip and slide the window
+            clip_frames = np.array(buf[:CLIP_LENGTH])
+            _lstm_frame_buffers[camera_id] = buf[LSTM_STRIDE:]
+
+        # ── Step 1: Run LSTM inference ──
+        lstm_result = _run_lstm_on_clip(camera_id, clip_frames)
+        if lstm_result is None:
+            continue
+
+        lstm_class = lstm_result["lstm_class"]
+        lstm_conf = lstm_result["lstm_conf"]
+
+        # ── Step 2: Read latest pose heuristic data from tracker ──
+        pose_data = _pose_data.get(camera_id, {})
+        pose_conf = pose_data.get("pose_conf", 0.0)
+        person_count = pose_data.get("person_count", 0)
+        interaction_score = pose_data.get("interaction_score", 0)
+        avg_wrist_velocity = pose_data.get("avg_wrist_velocity", 0.0)
+
+        # ── Step 3: Hybrid Fusion ──
+        fusion = compute_hybrid_alert(
+            pose_conf=pose_conf,
+            lstm_conf=lstm_conf,
+            lstm_class=lstm_class,
+            motion_score=avg_wrist_velocity,
+            person_count=person_count,
+            interaction_score=interaction_score,
+        )
+
+        final_conf = fusion["final_conf"]
+        final_class = fusion["final_class"]
+        decision_mode = fusion["decision_mode"]
+        reason_tags = fusion["reason_tags"]
+        severity_level = fusion["severity_level"]
+
+        # ── Decision Transparency Logging ──
+        print(f"[HYBRID-LOG] cam={camera_id} | "
+              f"pose={pose_conf:.2f} lstm={lstm_conf:.2f} -> final={final_conf:.2f} | "
+              f"class={final_class} | mode={decision_mode} | "
+              f"persons={person_count} interact={interaction_score} | "
+              f"severity={severity_level} | reasons={reason_tags}")
+
+        # ── Step 4: Temporal Smoothing ──
+        conf_buffer = _hybrid_conf_buffers.get(camera_id)
+        if conf_buffer is None:
+            continue
+
+        if len(conf_buffer) > 0:
+            prev_conf = conf_buffer[-1]
+            smooth_conf = SMOOTHING_ALPHA * final_conf + (1 - SMOOTHING_ALPHA) * prev_conf
+        else:
+            smooth_conf = final_conf
+        conf_buffer.append(smooth_conf)
+
+        # ── Step 5: Alert Gating ──
+        # Only fire if class is NOT Normal
+        if final_class == "Normal":
+            continue
+
+        # Require last 5 smoothed values all above threshold
+        recent = list(conf_buffer)[-5:]
+        if len(recent) < 5 or not all(c > CONF_THRESHOLD for c in recent):
+            continue
+
+        # ── Cooldown check ──
+        now = time.time()
+        last_alert_time = _last_alert_times.get(camera_id, 0.0)
+        if now - last_alert_time < COOLDOWN_SECONDS:
+            continue
+        _last_alert_times[camera_id] = now
+
+        # ── Step 6: Build and queue the alert ──
+        conf_percent = int(smooth_conf * 100)
+        frontend_type = UCF_TO_FRONTEND_EVENT.get(final_class, "SuspiciousBehavior")
+
+        alert_data = {
+            "event_id": str(uuid.uuid4()),
+            "type": frontend_type,
+            "ucf_class": final_class,
+            "confidence": conf_percent,
+            "camera_id": camera_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "message": f"{final_class} detected on {camera_id} ({conf_percent}%)",
+            "severity_level": severity_level,
+            "decision_mode": decision_mode,
+            "reason_tags": reason_tags,
+        }
+
+        print(f"[HYBRID] 🚨 {final_class} on {camera_id} ({conf_percent}%) "
+              f"[{severity_level}] [{decision_mode}]")
+
+        # Log to filesystem
+        _log_event_to_file(camera_id, alert_data)
+
+        # Save to SQLite
+        _save_event_to_db(alert_data)
+
+        # Queue for async broadcast
+        with _pending_alerts_lock:
+            if camera_id not in _pending_crime_alerts:
+                _pending_crime_alerts[camera_id] = []
+            _pending_crime_alerts[camera_id].append(alert_data)
+
+        # Check if camera still active
+        if camera_id not in _lstm_locks:
+            break
+
+    print(f"[HYBRID] Inference thread stopped for camera '{camera_id}'")
+
+
+def _start_lstm_for_camera(camera_id: str):
+    """Initialize LSTM buffers, hybrid state, and start the background inference thread."""
+    _lstm_frame_buffers[camera_id] = []
+    _lstm_prob_buffers[camera_id] = []
+    _lstm_frame_counters[camera_id] = 0
+    _lstm_locks[camera_id] = threading.Lock()
+    _live_crime_stats[camera_id] = {"total_crimes": 0, "latest": None}
+
+    # Hybrid fusion state
+    _pose_data[camera_id] = {}
+    _hybrid_conf_buffers[camera_id] = deque(maxlen=10)
+    _last_alert_times[camera_id] = 0.0
+
+    thread = threading.Thread(
+        target=_lstm_inference_loop,
+        args=(camera_id,),
+        daemon=True,
+    )
+    thread.start()
+
+
+def _stop_lstm_for_camera(camera_id: str):
+    """Clean up LSTM + hybrid resources for a camera."""
+    _lstm_frame_buffers.pop(camera_id, None)
+    _lstm_prob_buffers.pop(camera_id, None)
+    _lstm_frame_counters.pop(camera_id, None)
+    _lstm_locks.pop(camera_id, None)  # thread will exit on next iteration
+    _live_crime_stats.pop(camera_id, None)
+    _pose_data.pop(camera_id, None)
+    _hybrid_conf_buffers.pop(camera_id, None)
+    _last_alert_times.pop(camera_id, None)
+    with _pending_alerts_lock:
+        _pending_crime_alerts.pop(camera_id, None)
+
+
+def _feed_frame_to_lstm(camera_id: str, frame_bgr: np.ndarray):
+    """Add a preprocessed frame to the LSTM buffer (called from ingest loop)."""
+    lock = _lstm_locks.get(camera_id)
+    if lock is None:
+        return
+
+    # Preprocess
+    preprocessed = _preprocess_frame_for_lstm(frame_bgr)
+
+    with lock:
+        _lstm_frame_buffers[camera_id].append(preprocessed)
+        _lstm_frame_counters[camera_id] = _lstm_frame_counters.get(camera_id, 0) + 1
+
+        # Cap buffer size to prevent memory explosion (keep last 64 frames)
+        if len(_lstm_frame_buffers[camera_id]) > 64:
+            _lstm_frame_buffers[camera_id] = _lstm_frame_buffers[camera_id][-64:]
 
 
 # ─────────────────────────────────────────────
@@ -107,20 +625,98 @@ async def ingest_stream(websocket: WebSocket, camera_id: str):
     """
     Edge device (mobile phone) connects here and continuously
     sends binary JPEG/WebP frame data.
+    
+    Every frame:
+      1. YOLOv8-Pose tracking → bounding boxes + pose heuristics
+      2. Feed into LSTM buffer → background thread runs hybrid fusion
+      3. Broadcast annotated frame to dashboard viewers
     """
     await manager.connect_ingest(camera_id, websocket)
+    tracker = _get_tracker(camera_id)
+    tracker.reset()
+
+    # Start background LSTM + Hybrid inference for this camera
+    _start_lstm_for_camera(camera_id)
+
+    # Pre-warm the LSTM detector on first camera connect
+    _get_lstm_detector()
 
     try:
         while True:
             # Receive raw image bytes from the mobile device
             data = await websocket.receive_bytes()
-            # Immediately relay to all dashboard viewers
+            
+            # Decode for YOLO-Pose tracking
+            nparr = np.frombuffer(data, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+            if frame is not None:
+                result = tracker.process_frame(frame)
+                
+                # Feed every frame to LSTM buffer (background thread handles inference)
+                _feed_frame_to_lstm(camera_id, frame)
+
+                # ── Store pose data for hybrid fusion engine ──
+                _pose_data[camera_id] = {
+                    "pose_conf": result.get("pose_conf", 0.0),
+                    "person_count": result.get("person_count", 0),
+                    "interaction_score": result.get("interaction_score", 0),
+                    "avg_wrist_velocity": result.get("avg_wrist_velocity", 0.0),
+                }
+
+                # Draw YOLO bounding boxes on frame
+                for box in result["boxes"]:
+                    x, y, w, h = box["x"], box["y"], box["w"], box["h"]
+                    is_alert = any(a.get("track_id") == box["id"] for a in result["alerts"])
+                    color = (0, 0, 255) if is_alert else (0, 255, 0)
+                    cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+                    cv2.putText(frame, f"ID: {box['id']}", (x, max(0, y - 10)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+                # Draw YOLO-based alerts (loitering, etc.)
+                for alert in result["alerts"]:
+                    cv2.putText(frame, f"ALERT: {alert['type']}", (10, 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
+                # Check for pending hybrid crime alerts from the background thread
+                pending = []
+                with _pending_alerts_lock:
+                    if camera_id in _pending_crime_alerts and _pending_crime_alerts[camera_id]:
+                        pending = _pending_crime_alerts[camera_id][:]
+                        _pending_crime_alerts[camera_id] = []
+
+                # Draw hybrid crime label on frame if we just got an alert
+                for crime in pending:
+                    sev = crime.get("severity_level", "")
+                    label = f"{sev} THREAT: {crime['ucf_class']} ({crime['confidence']}%)"
+                    cv2.putText(frame, label, (10, 65),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
+
+                # Re-encode annotated frame
+                ret, buffer = cv2.imencode('.jpg', frame)
+                if ret:
+                    data = buffer.tobytes()
+                    
+                # Broadcast YOLO alerts to viewers
+                for alert in result["alerts"]:
+                    await manager.broadcast_alert(camera_id, alert, data)
+
+                # Broadcast hybrid crime alerts to viewers
+                for crime in pending:
+                    await manager.broadcast_crime_alert(camera_id, crime, data)
+
+            # Relay the annotated frame to all dashboard viewers
             await manager.broadcast_to_viewers(camera_id, data)
+
     except WebSocketDisconnect:
         manager.disconnect_ingest(camera_id)
     except Exception as e:
         print(f"[INGEST] Error for camera '{camera_id}': {e}")
         manager.disconnect_ingest(camera_id)
+    finally:
+        _stop_lstm_for_camera(camera_id)
+        if camera_id in _trackers:
+            _trackers[camera_id].reset()
 
 
 # ─────────────────────────────────────────────

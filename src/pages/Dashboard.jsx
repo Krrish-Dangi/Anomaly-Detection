@@ -2,13 +2,9 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { gsap } from 'gsap';
 import { QRCodeSVG } from 'qrcode.react';
 import DashboardLayout from '../components/DashboardLayout';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import '../pages/Dashboard.css';
-
-const statsData = [
-    { label: 'ACTIVE CAMERAS', value: '0', change: '—', positive: true },
-    { label: 'THREATS DETECTED', value: '0', change: '—', positive: true },
-    { label: 'SYSTEM UPTIME', value: '—', change: '—', positive: true },
-];
 
 // Generate a random short camera ID
 const generateCameraId = () => {
@@ -23,8 +19,18 @@ const Dashboard = () => {
     const [showConnectModal, setShowConnectModal] = useState(false);
     const [qrCameraId, setQrCameraId] = useState('');
     const [qrUrl, setQrUrl] = useState('');
+    const { user } = useAuth();
     const [connectedCameras, setConnectedCameras] = useState([]);
     const [liveFeedData, setLiveFeedData] = useState({}); // camera_id -> base64 frame
+    const [dashboardStats, setDashboardStats] = useState(null);
+    const [footTraffic, setFootTraffic] = useState({ labels: [], values: [] });
+
+    // ─── Live Crime Detection State ───
+    const [liveThreatCount, setLiveThreatCount] = useState(0);
+    const [liveAlerts, setLiveAlerts] = useState([]); // [{ucf_class, confidence, camera_id, timestamp, message}]
+    const [showAlertToast, setShowAlertToast] = useState(false);
+    const [latestCrimeAlert, setLatestCrimeAlert] = useState(null);
+    const alertTimeoutRef = useRef(null);
 
     // Refs for local camera streaming
     const localVideoRefs = useRef({}); // camera_id -> video element
@@ -75,6 +81,9 @@ const Dashboard = () => {
 
                 ws.onopen = () => {
                     console.log(`[LOCAL] Streaming ${camId} to server`);
+
+                    // Simultaneously connect to live viewer to receive YOLO alerts back from server
+                    startLiveFeed(camId);
 
                     // Start frame extraction loop
                     const canvas = document.createElement('canvas');
@@ -145,6 +154,24 @@ const Dashboard = () => {
         });
     }, []);
 
+    // ─── Fetch dashboard data (callable from WS handler too) ───
+    const fetchDashboardData = useCallback(async () => {
+        try {
+            const statsResponse = await fetch('/api/dashboard/stats');
+            if (statsResponse.ok) {
+                const data = await statsResponse.json();
+                setDashboardStats(data);
+            }
+            const trafficResponse = await fetch('/api/dashboard/foot-traffic?window=24h');
+            if (trafficResponse.ok) {
+                const data = await trafficResponse.json();
+                setFootTraffic(data);
+            }
+        } catch (err) {
+            console.error("Error fetching dashboard data:", err);
+        }
+    }, []);
+
     // ─── Start listening on live WS for a remote camera ───
     const startLiveFeed = (camId) => {
         let retryCount = 0;
@@ -156,14 +183,80 @@ const Dashboard = () => {
 
             const ws = new WebSocket(wsUrl);
 
-            ws.onmessage = (event) => {
+            ws.onmessage = async (event) => {
                 try {
                     const data = JSON.parse(event.data);
-                    if (data.type === 'frame' && data.frame) {
+                    // Update live feed frame for any frame/alert/crime_alert
+                    if ((data.type === 'frame' || data.type === 'alert' || data.type === 'crime_alert') && data.frame) {
                         setLiveFeedData(prev => ({
                             ...prev,
                             [camId]: `data:image/jpeg;base64,${data.frame}`,
                         }));
+                    }
+
+                    // Handle YOLO-based alerts (loitering, zone breach)
+                    if (data.type === 'alert' && data.alert) {
+                        console.log("YOLO Alert received:", data.alert);
+                        if (user) {
+                            await supabase.from('incidents').insert({
+                                user_id: user.id,
+                                camera_id: data.camera_id || camId,
+                                event_type: data.alert.type,
+                                confidence: 99,
+                                detected_at: new Date().toISOString(),
+                                metadata: {
+                                    duration_sec: data.alert.duration || 0,
+                                    message: data.alert.message || ""
+                                }
+                            });
+                        }
+                    }
+
+                    // Handle LSTM UCF Crime alerts (the new pipeline)
+                    if (data.type === 'crime_alert' && data.alert) {
+                        console.log("🚨 CRIME ALERT:", data.alert);
+
+                        // Increment local threat counter
+                        setLiveThreatCount(prev => prev + 1);
+
+                        // Add to live alerts list
+                        setLiveAlerts(prev => [data.alert, ...prev].slice(0, 50));
+
+                        // Show toast notification
+                        setLatestCrimeAlert(data.alert);
+                        setShowAlertToast(true);
+                        if (alertTimeoutRef.current) clearTimeout(alertTimeoutRef.current);
+                        alertTimeoutRef.current = setTimeout(() => setShowAlertToast(false), 6000);
+
+                        // Animate the toast in
+                        setTimeout(() => {
+                            gsap.fromTo('.dash-crime-toast',
+                                { x: 80, opacity: 0 },
+                                { x: 0, opacity: 1, duration: 0.5, ease: 'back.out(1.4)' }
+                            );
+                        }, 10);
+
+                        // Save to Supabase with hybrid metadata
+                        if (user) {
+                            await supabase.from('incidents').insert({
+                                user_id: user.id,
+                                camera_id: data.alert.camera_id || camId,
+                                event_type: data.alert.ucf_class || data.alert.type,
+                                confidence: data.alert.confidence || 0,
+                                detected_at: data.alert.timestamp || new Date().toISOString(),
+                                metadata: {
+                                    message: data.alert.message || "",
+                                    ucf_class: data.alert.ucf_class || "",
+                                    source: 'live_stream',
+                                    severity_level: data.alert.severity_level || "",
+                                    decision_mode: data.alert.decision_mode || "",
+                                    reason_tags: data.alert.reason_tags || [],
+                                }
+                            });
+                        }
+
+                        // Re-fetch dashboard stats + foot traffic to update charts in real-time
+                        fetchDashboardData();
                     }
                 } catch (e) {
                     // Ignore non-JSON messages
@@ -199,8 +292,10 @@ const Dashboard = () => {
         setShowConnectModal(false);
     };
 
-    // ─── Cleanup on unmount ───
+    // ─── Fetch on mount + cleanup ───
     useEffect(() => {
+        fetchDashboardData();
+
         return () => {
             // Stop all local cameras
             Object.keys(localStreamRefs.current).forEach(camId => {
@@ -214,8 +309,9 @@ const Dashboard = () => {
                     clearInterval(localIntervalRefs.current[camId]);
                 }
             });
+            if (alertTimeoutRef.current) clearTimeout(alertTimeoutRef.current);
         };
-    }, []);
+    }, [fetchDashboardData]);
 
     // ─── Chart drawing ───
     useEffect(() => {
@@ -252,7 +348,7 @@ const Dashboard = () => {
             ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke();
         }
 
-        const points = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let points = footTraffic.values && footTraffic.values.length > 0 ? footTraffic.values : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         const getX = (i) => padL + (i / (points.length - 1)) * cw;
         const getY = (v) => padT + ch - v * ch;
 
@@ -273,10 +369,20 @@ const Dashboard = () => {
         }
         ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2.5; ctx.stroke();
 
-        const xLabels = ['00:00', '08:00', '16:00', '23:50'];
+        const xLabels = footTraffic.labels && footTraffic.labels.length > 0 ? footTraffic.labels : ['00:00', '08:00', '16:00', '23:50'];
         ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '12px Inter, sans-serif'; ctx.textAlign = 'center';
         xLabels.forEach((l, i) => ctx.fillText(l, padL + (i / (xLabels.length - 1)) * cw, h - 12));
     };
+
+    // Redraw chart when footTraffic changes
+    useEffect(() => {
+        const canvas = chartRef.current;
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            const rect = canvas.parentElement.getBoundingClientRect();
+            drawChart(ctx, rect.width, rect.height);
+        }
+    }, [footTraffic]);
 
     // ─── Entrance animations ───
     useEffect(() => {
@@ -288,17 +394,26 @@ const Dashboard = () => {
 
     const hasConnectedCameras = connectedCameras.length > 0;
 
+    // Combine backend stats + local live threat counter
+    const totalThreats = (dashboardStats?.threats_detected_today || 0) + liveThreatCount;
+
+    const liveStatsData = [
+        { label: 'ACTIVE CAMERAS', value: connectedCameras.length, change: 'LIVE', positive: true },
+        { label: 'THREATS DETECTED', value: totalThreats, change: liveThreatCount > 0 ? `+${liveThreatCount} live` : `${dashboardStats?.threats_change_pct || 0}%`, positive: liveThreatCount === 0 },
+        { label: 'SYSTEM UPTIME', value: dashboardStats ? `${dashboardStats.system_uptime_pct}%` : '—', change: '—', positive: true },
+    ];
+
     return (
         <DashboardLayout title="Dashboard" subtitle="Real-time monitoring and threat detection active.">
             <div className="dash-stats-row">
-                {statsData.map((stat, idx) => (
+                {liveStatsData.map((stat, idx) => (
                     <div className="dash-stat-card" key={stat.label}>
                         <div className="dash-stat-label">
-                            {idx === 0 ? 'ACTIVE CAMERAS' : stat.label}
+                            {stat.label}
                         </div>
                         <div className="dash-stat-bottom">
                             <div className="dash-stat-value">
-                                {idx === 0 ? connectedCameras.length : stat.value}
+                                {stat.value}
                             </div>
                             <div className={`dash-stat-change ${stat.positive ? 'positive' : 'negative'}`}>{stat.change}</div>
                         </div>
@@ -516,6 +631,84 @@ const Dashboard = () => {
                                 I've Scanned the QR Code
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Live Crime Alert Toast (Hybrid) ─── */}
+            {showAlertToast && latestCrimeAlert && (
+                <div className="dash-crime-toast">
+                    <div className="dash-crime-toast-icon">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                            <line x1="12" y1="9" x2="12" y2="13" />
+                            <line x1="12" y1="17" x2="12.01" y2="17" />
+                        </svg>
+                    </div>
+                    <div className="dash-crime-toast-body">
+                        <div className="dash-crime-toast-title">
+                            {latestCrimeAlert.severity_level === 'HIGH' ? '🔴' : latestCrimeAlert.severity_level === 'MEDIUM' ? '🟡' : '🟢'}{' '}
+                            {latestCrimeAlert.severity_level || 'ALERT'} THREAT: {latestCrimeAlert.ucf_class || latestCrimeAlert.type}
+                        </div>
+                        <div className="dash-crime-toast-meta">
+                            Camera: <strong>{latestCrimeAlert.camera_id}</strong> · Confidence: <strong>{latestCrimeAlert.confidence}%</strong>
+                            {latestCrimeAlert.decision_mode && (
+                                <span style={{ marginLeft: 8, padding: '2px 6px', background: 'rgba(0,200,255,0.15)', borderRadius: 4, fontSize: 11, color: '#00c8ff' }}>
+                                    {latestCrimeAlert.decision_mode}
+                                </span>
+                            )}
+                        </div>
+                        {latestCrimeAlert.reason_tags && latestCrimeAlert.reason_tags.length > 0 && (
+                            <div className="dash-crime-toast-msg" style={{ fontSize: 12, opacity: 0.85 }}>
+                                {latestCrimeAlert.reason_tags.join(' · ')}
+                            </div>
+                        )}
+                        {latestCrimeAlert.message && (
+                            <div className="dash-crime-toast-msg">{latestCrimeAlert.message}</div>
+                        )}
+                    </div>
+                    <button className="dash-crime-toast-close" onClick={() => setShowAlertToast(false)}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                    </button>
+                </div>
+            )}
+
+            {/* ─── Live Alerts Log Panel (Hybrid) ─── */}
+            {liveAlerts.length > 0 && (
+                <div className="dash-alerts-log">
+                    <div className="dash-alerts-log-header">
+                        <h3>Live Crime Detections</h3>
+                        <span className="dash-alerts-log-count">{liveAlerts.length}</span>
+                    </div>
+                    <div className="dash-alerts-log-list">
+                        {liveAlerts.slice(0, 10).map((alert, i) => (
+                            <div className="dash-alerts-log-item" key={alert.event_id || i}>
+                                <span className="dash-alerts-log-dot" style={
+                                    alert.severity_level === 'HIGH' ? { background: '#ff4d4d' } :
+                                    alert.severity_level === 'MEDIUM' ? { background: '#fbbf24' } :
+                                    { background: '#4ade80' }
+                                } />
+                                <span className="dash-alerts-log-class">{alert.ucf_class || alert.type}</span>
+                                {alert.severity_level && (
+                                    <span style={{
+                                        fontSize: 10, padding: '1px 5px', borderRadius: 3, fontWeight: 600,
+                                        background: alert.severity_level === 'HIGH' ? 'rgba(255,77,77,0.2)' : alert.severity_level === 'MEDIUM' ? 'rgba(251,191,36,0.2)' : 'rgba(74,222,128,0.2)',
+                                        color: alert.severity_level === 'HIGH' ? '#ff4d4d' : alert.severity_level === 'MEDIUM' ? '#fbbf24' : '#4ade80',
+                                    }}>{alert.severity_level}</span>
+                                )}
+                                <span className="dash-alerts-log-cam">{alert.camera_id}</span>
+                                <span className="dash-alerts-log-conf">{alert.confidence}%</span>
+                                {alert.decision_mode && (
+                                    <span style={{ fontSize: 10, color: '#888', marginLeft: 4 }}>{alert.decision_mode}</span>
+                                )}
+                                <span className="dash-alerts-log-time">
+                                    {new Date(alert.timestamp).toLocaleTimeString()}
+                                </span>
+                            </div>
+                        ))}
                     </div>
                 </div>
             )}

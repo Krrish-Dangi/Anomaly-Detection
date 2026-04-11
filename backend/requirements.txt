@@ -22,9 +22,16 @@ torch>=2.4.1
 torchvision>=0.19.1
 numpy>=1.26.4
 
+# ── YOLO Object Detection + Tracking ──
+# Provides YOLOv8n + BoT-SORT + ByteTrack natively
+ultralytics>=8.2.0
+
 # ── Image / Video Processing ──
 opencv-python-headless==4.10.0.84
 Pillow==10.4.0
 
 # ── WebSocket ──
 websockets==12.0
+
+# ── Evaluation ──
+scikit-learn>=1.4.0

@@ -65,7 +65,8 @@ UCF_TO_FRONTEND_EVENT = {
 }
 
 # ── UCF Crime Dataset ──
-DATASET_DIR = BASE_DIR.parent / "Anomaly-Detection-Dataset-UCF"
+# Dataset is at the project root level (DTI PROJECT/), two levels up from backend/
+DATASET_DIR = BASE_DIR.parent.parent / "Anomaly-Detection-Dataset-UCF"
 TRAIN_LIST = DATASET_DIR / "Anomaly_Train.txt"
 TEST_LIST = DATASET_DIR / "Anomaly_Test.txt"
 ANNOTATION_FILE = DATASET_DIR / "Temporal_Anomaly_Annotation_for_Testing_Videos.txt"
@@ -103,5 +104,5 @@ CORS_ORIGINS = [
     "http://localhost:5173",   # Vite dev server
     "http://localhost:3000",
     "http://127.0.0.1:5173",
-    "*",  # Allow any origin (needed for local network mobile access)
+    "*",
 ]

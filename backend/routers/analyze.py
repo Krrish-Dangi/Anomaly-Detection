@@ -33,6 +33,9 @@ router = APIRouter(prefix="/api", tags=["Analysis"])
 _stream_queues: dict[str, list] = {}
 _stream_done: dict[str, bool] = {}
 
+# In-memory store for MJPEG frames (job_id -> (frame_idx, jpeg_bytes))
+_mjpeg_frames: dict[str, tuple[int, bytes]] = {}
+
 # Global cached detector instance (avoid re-loading model for every upload)
 _detector_cache = {"instance": None, "attempted": False}
 
@@ -243,16 +246,71 @@ def _process_with_model(job_id, video_path, detector, total_frames, fps, width, 
     import cv2
     import numpy as np
     from config import FRAME_SIZE
+    from ai.live_tracker import LiveTracker
+    tracker = LiveTracker()
 
     # Read all frames — keep raw for HOG, preprocessed for model
     cap = cv2.VideoCapture(video_path)
     raw_frames = []
-    model_frames = []
+    
+    _push_event(job_id, "log", {
+        "time": "00:00:00",
+        "text": "Applying YOLO Tracking & generating preview...",
+        "type": "info",
+        "confidence": 100,
+    })
+
+    # Prepare VideoWriter to burn in boxes
+    processed_path = video_path.replace(".mp4", "_processed.mp4")
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(processed_path, fourcc, fps, (width, height))
+    
+    max_concurrent_people = 0
+    unique_event_types = set()
+    frame_idx = 0
+    
+    _push_event(job_id, "progress", {
+        "total_clips": total_frames,
+        "processed": 0,
+        "video_progress": 0,
+    })
+
+    model_frames_buffer = []
+    current_event = None
+    concluded_events = []
+    all_logs = []
+    
+    detector.model.eval()
+
     while True:
         ret, frame = cap.read()
         if not ret:
             break
-        raw_frames.append(frame)
+        
+        # 1. Run YOLO tracking
+        result = tracker.process_frame(frame)
+        people_in_frame = result["person_count"]
+        max_concurrent_people = max(max_concurrent_people, people_in_frame)
+        
+        # 2. Draw boxes and alerts
+        for box in result["boxes"]:
+            x, y, w, h = box["x"], box["y"], box["w"], box["h"]
+            is_alert = any(a.get("track_id") == box["id"] for a in result["alerts"])
+            color = (0, 0, 255) if is_alert else (0, 255, 0)
+            cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+            cv2.putText(frame, f"ID: {box['id']}", (x, max(0, y - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+        for alert in result["alerts"]:
+            cv2.putText(frame, f"ALERT: {alert['type']}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+            
+        out.write(frame)
+        
+        # JPEG encoding for MJPEG feed
+        ret_jpg, buffer = cv2.imencode('.jpg', frame)
+        if ret_jpg:
+            _mjpeg_frames[job_id] = (frame_idx, buffer.tobytes())
+
+        # LSTM Preprocessing
         resized = cv2.resize(frame, FRAME_SIZE)
         resized = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
         resized = resized.astype(np.float32) / 255.0
@@ -260,103 +318,69 @@ def _process_with_model(job_id, video_path, detector, total_frames, fps, width, 
         std = np.array([0.229, 0.224, 0.225])
         resized = (resized - mean) / std
         resized = resized.transpose(2, 0, 1)
-        model_frames.append(resized)
-    cap.release()
+        model_frames_buffer.append(resized)
 
-    # Build clips
-    clips, clip_starts = [], []
-    stride = CLIP_LENGTH // 2
-    for i in range(0, len(model_frames) - CLIP_LENGTH + 1, stride):
-        clip = np.array(model_frames[i:i + CLIP_LENGTH])
-        if len(clip) == CLIP_LENGTH:
-            clips.append(clip)
-            clip_starts.append(i)
-
-    total_clips = len(clips)
-
-    # Initialize HOG person detector for counting
-    hog = cv2.HOGDescriptor()
-    hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
-    max_concurrent_people = 0
-
-    # Event consolidation state
-    current_event = None
-    concluded_events = []
-    all_logs = []
-    unique_event_types = set()
-
-    _push_event(job_id, "progress", {"total_clips": total_clips, "processed": 0})
-
-    detector.model.eval()
-    with torch.no_grad():
-        for idx, (clip, start_frame) in enumerate(zip(clips, clip_starts)):
-            # ── 1. Classify clip ──
-            tensor = torch.FloatTensor(clip).unsqueeze(0).to(detector.device)
-            logits = detector.model(tensor)
-            probs = torch.softmax(logits, dim=1)
-            conf_val, pred = torch.max(probs, dim=1)
-            class_idx = pred.item()
-            conf = int(conf_val.item() * 100)
-            class_name = UCF_CRIME_CLASSES[class_idx]
-            timestamp_sec = start_frame / fps if fps > 0 else 0
-            video_progress = (start_frame + CLIP_LENGTH) / total_frames if total_frames > 0 else 0
-
-            # ── 2. Person count via HOG (no bounding boxes sent) ──
-            mid_idx = min(start_frame + CLIP_LENGTH // 2, len(raw_frames) - 1)
-            det_frame = cv2.resize(raw_frames[mid_idx], (640, 480))
-            try:
-                rects, _ = hog.detectMultiScale(
-                    det_frame, winStride=(8, 8), padding=(4, 4), scale=1.05
-                )
-                people_in_frame = len(rects)
-            except Exception:
-                people_in_frame = 0
-            max_concurrent_people = max(max_concurrent_people, people_in_frame)
-
-            # ── 3. Event consolidation ──
-            if class_name != "Normal" and conf >= 75:
-                frontend_type = UCF_TO_FRONTEND_EVENT.get(class_name, "SuspiciousBehavior")
-                unique_event_types.add(class_name)
-                if current_event and current_event['class_name'] == class_name:
-                    # Extend existing event
-                    current_event['end_frame'] = start_frame + CLIP_LENGTH
-                    current_event['peak_conf'] = max(current_event['peak_conf'], conf)
-                    current_event['clip_count'] += 1
+        frame_idx += 1
+        
+        # Check if we have enough frames for an LSTM block
+        if len(model_frames_buffer) >= CLIP_LENGTH:
+            clip = np.array(model_frames_buffer[:CLIP_LENGTH])
+            stride = CLIP_LENGTH // 2
+            model_frames_buffer = model_frames_buffer[stride:]
+            start_frame = frame_idx - CLIP_LENGTH
+            
+            with torch.no_grad():
+                tensor = torch.FloatTensor(clip).unsqueeze(0).to(detector.device)
+                logits = detector.model(tensor)
+                probs = torch.softmax(logits, dim=1)
+                conf_val, pred = torch.max(probs, dim=1)
+                class_idx = pred.item()
+                conf = int(conf_val.item() * 100)
+                class_name = UCF_CRIME_CLASSES[class_idx]
+                
+                if class_name != "Normal" and conf >= 95:
+                    frontend_type = UCF_TO_FRONTEND_EVENT.get(class_name, "SuspiciousBehavior")
+                    unique_event_types.add(class_name)
+                    if current_event and current_event['class_name'] == class_name:
+                        current_event['end_frame'] = start_frame + CLIP_LENGTH
+                        current_event['peak_conf'] = max(current_event['peak_conf'], conf)
+                        current_event['clip_count'] += 1
+                    else:
+                        if current_event:
+                            _conclude_event(job_id, current_event, fps)
+                            concluded_events.append(current_event)
+                        current_event = {
+                            'event_id': str(uuid.uuid4()),
+                            'class_name': class_name,
+                            'frontend_type': frontend_type,
+                            'start_frame': start_frame,
+                            'end_frame': start_frame + CLIP_LENGTH,
+                            'peak_conf': conf,
+                            'clip_count': 1,
+                        }
                 else:
-                    # Conclude previous event if different type
                     if current_event:
                         _conclude_event(job_id, current_event, fps)
                         concluded_events.append(current_event)
-                    # Start new event
-                    current_event = {
-                        'event_id': str(uuid.uuid4()),
-                        'class_name': class_name,
-                        'frontend_type': frontend_type,
-                        'start_frame': start_frame,
-                        'end_frame': start_frame + CLIP_LENGTH,
-                        'peak_conf': conf,
-                        'clip_count': 1,
-                    }
-            else:
-                # Normal clip — close any running event
-                if current_event:
-                    _conclude_event(job_id, current_event, fps)
-                    concluded_events.append(current_event)
-                    current_event = None
+                        current_event = None
 
-            # ── 3. Progress + stats ──
+                _push_event(job_id, "stats", {
+                    "people_detected": max_concurrent_people,
+                    "objects_detected": len(unique_event_types),
+                    "suspicious_events": len(concluded_events) + (1 if current_event else 0),
+                })
+        
+        # Emit progressive UI update
+        if frame_idx % 2 == 0:
             _push_event(job_id, "progress", {
-                "total_clips": total_clips,
-                "processed": idx + 1,
-                "video_progress": round(video_progress * 100, 1),
+                "total_clips": total_frames,
+                "processed": frame_idx,
+                "video_progress": round((frame_idx / total_frames) * 100, 1) if total_frames > 0 else 0,
             })
-            _push_event(job_id, "stats", {
-                "people_detected": max_concurrent_people,
-                "objects_detected": len(unique_event_types),
-                "suspicious_events": len(concluded_events) + (1 if current_event else 0),
-            })
+            time.sleep(0.005) # Yield thread smoothly
 
-            time.sleep(0.15)
+    cap.release()
+    out.release()
 
     # Conclude final event
     if current_event:
@@ -367,7 +391,7 @@ def _process_with_model(job_id, video_path, detector, total_frames, fps, width, 
     total_suspicious = len(concluded_events)
     summary_log = {
         "time": _format_time(total_frames / fps if fps > 0 else 0),
-        "text": f"Analysis complete — {total_suspicious} anomaly events from {total_clips} clips",
+        "text": f"Analysis complete — {total_suspicious} anomaly events detected",
         "type": "info" if total_suspicious == 0 else "warning",
         "confidence": 100,
     }
@@ -604,6 +628,8 @@ async def stream_analysis(job_id: str, request: Request):
     Frontend connects with EventSource after uploading.
     """
     async def event_generator():
+        # First send padding comment to force Ngrok and proxy buffers to flush
+        yield ": " + (" " * 4096) + "\n\n"
         cursor = 0
         while True:
             # Check if client disconnected
@@ -633,6 +659,35 @@ async def stream_analysis(job_id: str, request: Request):
             "X-Accel-Buffering": "no",
         },
     )
+
+@router.get("/analyze/{job_id}/mjpeg")
+async def mjpeg_feed(job_id: str, request: Request):
+    """
+    HTTP MJPEG endpoint that streams the literal frame progression over the network
+    while the AI model runs. Used by the frontend during processing state.
+    """
+    async def frame_generator():
+        last_idx = -1
+        while True:
+            if await request.is_disconnected():
+                break
+
+            frame_data = _mjpeg_frames.get(job_id)
+            if frame_data is None:
+                if _stream_done.get(job_id, False):
+                    break
+                await asyncio.sleep(0.1)
+                continue
+            
+            idx, frame_bytes = frame_data
+            if idx != last_idx:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                last_idx = idx
+            
+            await asyncio.sleep(0.03) # Cap streaming framerate 
+
+    return StreamingResponse(frame_generator(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
 @router.get("/uploads/{job_id}")
