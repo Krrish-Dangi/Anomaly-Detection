@@ -36,6 +36,16 @@ const Dashboard = () => {
     const [latestCrimeAlert, setLatestCrimeAlert] = useState(null);
     const alertTimeoutRef = useRef(null);
 
+    // ─── Live Person Count & Activity Log State ───
+    const [livePersonCount, setLivePersonCount] = useState(0);
+    const [liveTotalUnique, setLiveTotalUnique] = useState(0);
+    const [liveActivityLog, setLiveActivityLog] = useState([]); // [{timestamp, person_count, camera_id, alerts}]
+    const personCountChartRef = useRef([]); // rolling array of {time, count} for foot traffic chart
+
+    // ─── LSTM Prediction State ───
+    const [lstmPredictions, setLstmPredictions] = useState([]); // [{lstm_class, lstm_conf, final_class, final_conf, ...}]
+    const [latestLstm, setLatestLstm] = useState(null);
+
     // Refs for local camera streaming
     const localVideoRefs = useRef({}); // camera_id -> video element
     const localCanvasRefs = useRef({}); // camera_id -> canvas element
@@ -185,6 +195,55 @@ const Dashboard = () => {
                             ...prev,
                             [camId]: `data:image/jpeg;base64,${data.frame}`,
                         }));
+                    }
+
+                    // ─── Handle per-frame tracker metadata (person count, etc.) ───
+                    if (data.type === 'frame' && typeof data.person_count === 'number') {
+                        const count = data.person_count;
+                        setLivePersonCount(count);
+                        setLiveTotalUnique(data.total_unique || 0);
+
+                        // Update foot traffic chart with live person count
+                        setFootTraffic(prev => {
+                            const now = new Date();
+                            const currentHour = now.getHours();
+                            const newValues = prev.values && prev.values.length === 24
+                                ? [...prev.values]
+                                : Array(24).fill(0);
+                            // Use max person count seen in this hour bucket
+                            newValues[currentHour] = Math.max(newValues[currentHour], count);
+                            const maxVal = Math.max(...newValues, 1);
+                            const normalized = newValues.map(v => v / maxVal);
+                            return {
+                                labels: Array(24).fill('').map((_, i) => `${i.toString().padStart(2, '0')}:00`),
+                                values: normalized,
+                            };
+                        });
+
+                        // Add to activity log (throttle: only log every ~2 seconds)
+                        setLiveActivityLog(prev => {
+                            const last = prev[0];
+                            const nowMs = Date.now();
+                            if (last && nowMs - last._ts < 2000) return prev;
+                            const entry = {
+                                _ts: nowMs,
+                                timestamp: data.timestamp || new Date().toISOString(),
+                                person_count: count,
+                                total_unique: data.total_unique || 0,
+                                camera_id: data.camera_id || camId,
+                                alerts: data.alerts || [],
+                                pose_conf: data.pose_conf || 0,
+                                interaction_score: data.interaction_score || 0,
+                            };
+                            return [entry, ...prev].slice(0, 100);
+                        });
+                    }
+
+                    // ─── Handle LSTM inference updates from hybrid pipeline ───
+                    if (data.type === 'lstm_update') {
+                        console.log(`[LSTM] ${data.lstm_class} (${(data.lstm_conf * 100).toFixed(0)}%) → Fusion: ${data.final_class} (${(data.final_conf * 100).toFixed(0)}%)`);
+                        setLatestLstm(data);
+                        setLstmPredictions(prev => [data, ...prev].slice(0, 50));
                     }
 
                     // Handle YOLO-based alerts (loitering, zone breach)
@@ -442,6 +501,7 @@ const Dashboard = () => {
 
     const liveStatsData = [
         { label: 'ACTIVE CAMERAS', value: connectedCameras.length, change: 'LIVE', positive: true },
+        { label: 'PEOPLE DETECTED', value: livePersonCount, change: liveTotalUnique > 0 ? `${liveTotalUnique} unique` : 'SCANNING', positive: true },
         { label: 'THREATS DETECTED', value: totalThreats, change: liveThreatCount > 0 ? `+${liveThreatCount} live` : `0%`, positive: liveThreatCount === 0 },
         { label: 'SYSTEM UPTIME', value: uptimeString, change: 'ACTIVE', positive: true },
     ];
@@ -732,6 +792,115 @@ const Dashboard = () => {
             )}
 
             {/* ─── Live Alerts Log Panel (Hybrid) ─── */}
+            {/* ─── LSTM Model Predictions Panel ─── */}
+            {lstmPredictions.length > 0 && (
+                <div className="dash-alerts-log" style={{ borderLeft: '3px solid #a855f7' }}>
+                    <div className="dash-alerts-log-header">
+                        <h3>🧠 LSTM Model Predictions</h3>
+                        <span className="dash-alerts-log-count">{lstmPredictions.length}</span>
+                    </div>
+                    {latestLstm && (
+                        <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 11, color: '#aaa' }}>LSTM Raw:</span>
+                                <span style={{
+                                    fontWeight: 700, fontSize: 14,
+                                    color: latestLstm.lstm_class === 'Normal' ? '#4ade80' : '#ff6b6b',
+                                }}>{latestLstm.lstm_class}</span>
+                                <span style={{ fontSize: 12, color: '#888' }}>({(latestLstm.lstm_conf * 100).toFixed(0)}%)</span>
+                            </div>
+                            <span style={{ color: '#555' }}>→</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 11, color: '#aaa' }}>Fused:</span>
+                                <span style={{
+                                    fontWeight: 700, fontSize: 14,
+                                    color: latestLstm.final_class === 'Normal' ? '#4ade80' : '#ff6b6b',
+                                }}>{latestLstm.final_class}</span>
+                                <span style={{ fontSize: 12, color: '#888' }}>({(latestLstm.final_conf * 100).toFixed(0)}%)</span>
+                            </div>
+                            <span style={{
+                                fontSize: 10, padding: '2px 6px', borderRadius: 4,
+                                background: 'rgba(168,85,247,0.15)', color: '#a855f7', fontWeight: 600,
+                            }}>{latestLstm.decision_mode}</span>
+                        </div>
+                    )}
+                    <div className="dash-alerts-log-list">
+                        {lstmPredictions.slice(0, 12).map((pred, i) => (
+                            <div className="dash-alerts-log-item" key={i}>
+                                <span className="dash-alerts-log-dot" style={
+                                    pred.final_class === 'Normal' ? { background: '#4ade80' } :
+                                    pred.final_conf > 0.55 ? { background: '#ff4d4d' } :
+                                    { background: '#fbbf24' }
+                                } />
+                                <span className="dash-alerts-log-class" style={{
+                                    color: pred.lstm_class === 'Normal' ? '#4ade80' : '#ff6b6b',
+                                }}>{pred.lstm_class}</span>
+                                <span style={{ fontSize: 11, color: '#888' }}>({(pred.lstm_conf * 100).toFixed(0)}%)</span>
+                                {pred.final_class !== pred.lstm_class && (
+                                    <>
+                                        <span style={{ color: '#555', fontSize: 11 }}>→</span>
+                                        <span style={{ fontSize: 12, fontWeight: 600, color: '#ff6b6b' }}>{pred.final_class}</span>
+                                    </>
+                                )}
+                                <span style={{ fontSize: 10, color: '#666', marginLeft: 4 }}>
+                                    {pred.decision_mode}
+                                </span>
+                                {pred.reason_tags && pred.reason_tags.length > 0 && (
+                                    <span style={{ fontSize: 10, color: '#777', marginLeft: 4 }}>
+                                        [{pred.reason_tags.join(', ')}]
+                                    </span>
+                                )}
+                                <span className="dash-alerts-log-time">
+                                    {new Date(pred.timestamp).toLocaleTimeString()}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Live Activity Log (person count per frame) ─── */}
+            {liveActivityLog.length > 0 && (
+                <div className="dash-alerts-log">
+                    <div className="dash-alerts-log-header">
+                        <h3>Live Activity Feed</h3>
+                        <span className="dash-alerts-log-count">{liveActivityLog.length}</span>
+                    </div>
+                    <div className="dash-alerts-log-list">
+                        {liveActivityLog.slice(0, 15).map((entry, i) => (
+                            <div className="dash-alerts-log-item" key={i}>
+                                <span className="dash-alerts-log-dot" style={
+                                    entry.person_count === 0 ? { background: '#4ade80' } :
+                                    entry.person_count <= 3 ? { background: '#00d4ff' } :
+                                    { background: '#fbbf24' }
+                                } />
+                                <span className="dash-alerts-log-class">
+                                    {entry.person_count === 0 ? 'No Activity' : `${entry.person_count} ${entry.person_count === 1 ? 'Person' : 'People'}`}
+                                </span>
+                                <span style={{ fontSize: 11, color: '#888', marginLeft: 4 }}>
+                                    {entry.total_unique > 0 && `(${entry.total_unique} unique)`}
+                                </span>
+                                {entry.interaction_score > 0 && (
+                                    <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, fontWeight: 600, background: 'rgba(251,191,36,0.2)', color: '#fbbf24', marginLeft: 4 }}>
+                                        {entry.interaction_score} interaction{entry.interaction_score > 1 ? 's' : ''}
+                                    </span>
+                                )}
+                                {entry.alerts && entry.alerts.length > 0 && (
+                                    <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, fontWeight: 600, background: 'rgba(255,77,77,0.2)', color: '#ff4d4d', marginLeft: 4 }}>
+                                        {entry.alerts.map(a => a.type).join(', ')}
+                                    </span>
+                                )}
+                                <span className="dash-alerts-log-cam">{entry.camera_id}</span>
+                                <span className="dash-alerts-log-time">
+                                    {new Date(entry.timestamp).toLocaleTimeString()}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* ─── Live Crime Detections Log ─── */}
             {liveAlerts.length > 0 && (
                 <div className="dash-alerts-log">
                     <div className="dash-alerts-log-header">

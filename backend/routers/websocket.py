@@ -109,10 +109,11 @@ _hybrid_conf_buffers: dict[str, deque] = {}
 _last_alert_times: dict[str, float] = {}
 
 # Fusion Constants
-CONF_THRESHOLD = 0.90        # minimum smoothed confidence to trigger alert
+CONF_THRESHOLD = 0.55        # minimum smoothed confidence to trigger alert
 COOLDOWN_SECONDS = 3.0       # minimum seconds between consecutive alerts
 SMOOTHING_ALPHA = 0.6        # exponential smoothing weight for current frame
 MOTION_THRESHOLD = 15.0      # avg wrist velocity to consider as "motion present"
+CONSECUTIVE_FRAMES_REQUIRED = 2  # number of consecutive frames above threshold to trigger
 
 
 # ─────────────────────────────────────────────
@@ -372,15 +373,18 @@ def compute_hybrid_alert(
     else:
         final_class = lstm_class
 
-    # ─── False Positive Killers ───
-    if person_count == 1:
-        final_conf *= 0.5
-        reason_tags.append("Single person penalty applied")
+    # ─── False Positive Adjustments ───
+    if person_count == 0:
+        final_conf *= 0.3
+        reason_tags.append("No person visible")
+    elif person_count == 1:
+        final_conf *= 0.75
+        reason_tags.append("Single person penalty")
     
-    if interaction_score == 0:
-        final_conf *= 0.6
+    if interaction_score == 0 and person_count >= 2:
+        final_conf *= 0.8
         reason_tags.append("No close interaction detected")
-    else:
+    elif interaction_score > 0:
         reason_tags.append("Close proximity interaction")
 
     # ─── Confidence Cap ───
@@ -504,21 +508,29 @@ class ConnectionManager:
             print(f"[LIVE] Viewer left camera '{camera_id}' "
                   f"(remaining: {len(self.live_clients[camera_id])})")
 
-    async def broadcast_to_viewers(self, camera_id: str, data: bytes):
-        """Send raw frame bytes to every dashboard viewer for this camera."""
+    async def broadcast_to_viewers(self, camera_id: str, data: bytes, metadata: dict | None = None):
+        """Send raw frame bytes + tracker metadata to every dashboard viewer for this camera."""
         if camera_id not in self.live_clients:
             return
         dead = []
+        b64 = base64.b64encode(data).decode("ascii")
+        payload = {
+            "type": "frame",
+            "camera_id": camera_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "frame": b64,
+        }
+        if metadata:
+            payload["person_count"] = metadata.get("person_count", 0)
+            payload["total_unique"] = metadata.get("total_unique", 0)
+            payload["boxes"] = metadata.get("boxes", [])
+            payload["alerts"] = metadata.get("alerts", [])
+            payload["pose_conf"] = metadata.get("pose_conf", 0.0)
+            payload["interaction_score"] = metadata.get("interaction_score", 0)
+            payload["avg_wrist_velocity"] = metadata.get("avg_wrist_velocity", 0.0)
         for client in self.live_clients[camera_id]:
             try:
-                # Send as base64 JSON so the browser <img> can consume it
-                b64 = base64.b64encode(data).decode("ascii")
-                await client.send_json({
-                    "type": "frame",
-                    "camera_id": camera_id,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "frame": b64,
-                })
+                await client.send_json(payload)
             except Exception:
                 dead.append(client)
         # Clean up dead connections
@@ -588,6 +600,8 @@ manager = ConnectionManager()
 # Pending crime alerts to broadcast (filled by bg thread, consumed by async loop)
 # camera_id -> list of crime_data_dicts
 _pending_crime_alerts: dict[str, list] = {}
+# Pending LSTM status updates (every inference cycle, always broadcast)
+_pending_lstm_updates: dict[str, list] = {}
 _pending_alerts_lock = threading.Lock()
 
 
@@ -664,14 +678,35 @@ def _lstm_inference_loop(camera_id: str):
             smooth_conf = final_conf
         conf_buffer.append(smooth_conf)
 
+        # ── Always broadcast LSTM inference result to frontend ──
+        lstm_update = {
+            "lstm_class": lstm_class,
+            "lstm_conf": round(lstm_conf, 4),
+            "final_class": final_class,
+            "final_conf": round(final_conf, 4),
+            "smooth_conf": round(smooth_conf, 4),
+            "decision_mode": decision_mode,
+            "reason_tags": reason_tags,
+            "severity_level": severity_level,
+            "person_count": person_count,
+            "interaction_score": interaction_score,
+            "pose_conf": round(pose_conf, 4),
+            "avg_wrist_velocity": round(avg_wrist_velocity, 2),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        with _pending_alerts_lock:
+            if camera_id not in _pending_lstm_updates:
+                _pending_lstm_updates[camera_id] = []
+            _pending_lstm_updates[camera_id].append(lstm_update)
+
         # ── Step 5: Alert Gating ──
         is_anomaly = False
 
         # Only consider anomalous if class is NOT Normal
         if final_class != "Normal":
-            # Require last 5 smoothed values all above threshold
-            recent = list(conf_buffer)[-5:]
-            if len(recent) >= 5 and all(c > CONF_THRESHOLD for c in recent):
+            # Require CONSECUTIVE_FRAMES_REQUIRED smoothed values all above threshold
+            recent = list(conf_buffer)[-CONSECUTIVE_FRAMES_REQUIRED:]
+            if len(recent) >= CONSECUTIVE_FRAMES_REQUIRED and all(c > CONF_THRESHOLD for c in recent):
                 is_anomaly = True
 
         if is_anomaly:
@@ -756,6 +791,7 @@ def _stop_lstm_for_camera(camera_id: str):
     _active_events.pop(camera_id, None)
     with _pending_alerts_lock:
         _pending_crime_alerts.pop(camera_id, None)
+        _pending_lstm_updates.pop(camera_id, None)
 
 
 def _feed_frame_to_lstm(camera_id: str, frame_bgr: np.ndarray):
@@ -842,10 +878,14 @@ async def ingest_stream(websocket: WebSocket, camera_id: str):
 
                 # Check for pending hybrid crime alerts from the background thread
                 pending = []
+                pending_lstm = []
                 with _pending_alerts_lock:
                     if camera_id in _pending_crime_alerts and _pending_crime_alerts[camera_id]:
                         pending = _pending_crime_alerts[camera_id][:]
                         _pending_crime_alerts[camera_id] = []
+                    if camera_id in _pending_lstm_updates and _pending_lstm_updates[camera_id]:
+                        pending_lstm = _pending_lstm_updates[camera_id][:]
+                        _pending_lstm_updates[camera_id] = []
 
                 # Draw hybrid crime label on frame if we just got an alert
                 for crime in pending:
@@ -853,6 +893,14 @@ async def ingest_stream(websocket: WebSocket, camera_id: str):
                     label = f"{sev} THREAT: {crime['ucf_class']} ({crime['confidence']}%)"
                     cv2.putText(frame, label, (10, 65),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
+
+                # Draw LSTM prediction on frame (always, so user sees what LSTM thinks)
+                if pending_lstm:
+                    latest_lstm = pending_lstm[-1]
+                    lstm_label = f"LSTM: {latest_lstm['lstm_class']} ({int(latest_lstm['lstm_conf']*100)}%)"
+                    color_lstm = (0, 255, 255) if latest_lstm['lstm_class'] == "Normal" else (0, 140, 255)
+                    cv2.putText(frame, lstm_label, (10, frame.shape[0] - 15),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_lstm, 2)
 
                 # Re-encode annotated frame
                 ret, buffer = cv2.imencode('.jpg', frame)
@@ -867,8 +915,21 @@ async def ingest_stream(websocket: WebSocket, camera_id: str):
                 for crime in pending:
                     await manager.broadcast_crime_alert(camera_id, crime, data)
 
-            # Relay the annotated frame to all dashboard viewers
-            await manager.broadcast_to_viewers(camera_id, data)
+                # Broadcast LSTM inference updates to viewers (every cycle)
+                for lstm_upd in pending_lstm:
+                    if camera_id in manager.live_clients:
+                        for client in list(manager.live_clients[camera_id]):
+                            try:
+                                await client.send_json({
+                                    "type": "lstm_update",
+                                    "camera_id": camera_id,
+                                    **lstm_upd,
+                                })
+                            except Exception:
+                                pass
+
+            # Relay the annotated frame to all dashboard viewers (with tracker metadata)
+            await manager.broadcast_to_viewers(camera_id, data, metadata=result if frame is not None else None)
 
     except WebSocketDisconnect:
         manager.disconnect_ingest(camera_id)
