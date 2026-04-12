@@ -44,7 +44,7 @@ class AnomalyDetector:
 
         # Check for GPU
         if torch.cuda.is_available():
-            self.device = "cuda"
+            self.device = "cuda:1" if torch.cuda.device_count() > 1 else "cuda:0"
         elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             self.device = "mps"
 

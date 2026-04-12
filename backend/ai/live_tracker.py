@@ -24,6 +24,10 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import torch
+
+# GPU Device Selection: Safely attempts to use GPU 1, falls back to GPU 0, then CPU
+DEVICE = "cuda:1" if torch.cuda.device_count() > 1 else ("cuda:0" if torch.cuda.is_available() else "cpu")
 
 # Lazy import — ultralytics is heavy and not needed until first use
 _yolo_pose_model = None
@@ -146,6 +150,7 @@ class LiveTracker:
             classes=[0],  # person only
             conf=self.confidence,
             verbose=False,
+            device=DEVICE,
         )
 
         boxes_out = []
@@ -371,7 +376,7 @@ def count_people_in_frame(frame: np.ndarray) -> int:
     if model is None:
         return 0
 
-    results = model(frame, classes=[0], conf=0.4, verbose=False)
+    results = model(frame, classes=[0], conf=0.4, verbose=False, device=DEVICE)
     if results and results[0].boxes is not None:
         return len(results[0].boxes)
     return 0

@@ -103,89 +103,104 @@ const EventHistory = () => {
         const canvas = canvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
-        const dpr = window.devicePixelRatio || 1;
 
-        const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
-        ctx.scale(dpr, dpr);
+        const drawChart = () => {
+            const parent = canvas.parentElement;
+            if (!parent) return;
+            const rect = parent.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) return;
 
-        const W = rect.width;
-        const H = rect.height;
-        const padL = 40, padR = 20, padT = 10, padB = 30;
-        const chartW = W - padL - padR;
-        const chartH = H - padT - padB;
-        const rawMax = Math.max(...chartData.values, 1);
-        const maxVal = Math.ceil(rawMax * 1.2) || 5; // 20% headroom, min 5
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            canvas.style.width = rect.width + 'px';
+            canvas.style.height = rect.height + 'px';
+            ctx.scale(dpr, dpr);
 
-        ctx.clearRect(0, 0, W, H);
+            const W = rect.width;
+            const H = rect.height;
+            const padL = 40, padR = 20, padT = 10, padB = 30;
+            const chartW = W - padL - padR;
+            const chartH = H - padT - padB;
+            const rawMax = Math.max(...chartData.values, 1);
+            const maxVal = Math.ceil(rawMax * 1.2) || 5; // 20% headroom, min 5
 
-        // Y-axis labels + grid lines (auto-scale)
-        const yStepCount = 5;
-        const ySteps = Array.from({ length: yStepCount + 1 }, (_, i) => Math.round((maxVal / yStepCount) * i));
-        ctx.font = '11px Inter, sans-serif';
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'middle';
-        ySteps.forEach(v => {
-            const y = padT + chartH - (v / maxVal) * chartH;
-            ctx.fillStyle = '#5a6478';
-            ctx.fillText(v, padL - 8, y);
+            ctx.clearRect(0, 0, W, H);
+
+            // Y-axis labels + grid lines (auto-scale)
+            const yStepCount = 5;
+            const ySteps = Array.from({ length: yStepCount + 1 }, (_, i) => Math.round((maxVal / yStepCount) * i));
+            ctx.font = '11px Inter, sans-serif';
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            ySteps.forEach(v => {
+                const y = padT + chartH - (v / maxVal) * chartH;
+                ctx.fillStyle = '#5a6478';
+                ctx.fillText(v, padL - 8, y);
+                ctx.beginPath();
+                ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+                ctx.moveTo(padL, y);
+                ctx.lineTo(padL + chartW, y);
+                ctx.stroke();
+            });
+
+            // X-axis labels
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            chartData.labels.forEach((label, i) => {
+                const x = padL + (i / (chartData.labels.length - 1)) * chartW;
+                ctx.fillStyle = '#5a6478';
+                ctx.fillText(label, x, padT + chartH + 10);
+            });
+
+            // Gradient fill
+            const grad = ctx.createLinearGradient(0, padT, 0, padT + chartH);
+            grad.addColorStop(0, 'rgba(0, 212, 255, 0.25)');
+            grad.addColorStop(1, 'rgba(0, 212, 255, 0.01)');
+
+            const points = chartData.values.map((v, i) => ({
+                x: padL + (i / (chartData.values.length - 1)) * chartW,
+                y: padT + chartH - (v / maxVal) * chartH,
+            }));
+
+            // Fill area
             ctx.beginPath();
-            ctx.strokeStyle = 'rgba(255,255,255,0.04)';
-            ctx.moveTo(padL, y);
-            ctx.lineTo(padL + chartW, y);
+            ctx.moveTo(points[0].x, padT + chartH);
+            points.forEach(p => ctx.lineTo(p.x, p.y));
+            ctx.lineTo(points[points.length - 1].x, padT + chartH);
+            ctx.closePath();
+            ctx.fillStyle = grad;
+            ctx.fill();
+
+            // Line
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+            points.forEach(p => ctx.lineTo(p.x, p.y));
+            ctx.strokeStyle = '#00d4ff';
+            ctx.lineWidth = 2.5;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
             ctx.stroke();
-        });
 
-        // X-axis labels
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        chartData.labels.forEach((label, i) => {
-            const x = padL + (i / (chartData.labels.length - 1)) * chartW;
-            ctx.fillStyle = '#5a6478';
-            ctx.fillText(label, x, padT + chartH + 10);
-        });
+            // Dots
+            points.forEach(p => {
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+                ctx.fillStyle = '#00d4ff';
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+                ctx.fillStyle = '#0a0e17';
+                ctx.fill();
+            });
+        };
 
-        // Gradient fill
-        const grad = ctx.createLinearGradient(0, padT, 0, padT + chartH);
-        grad.addColorStop(0, 'rgba(0, 212, 255, 0.25)');
-        grad.addColorStop(1, 'rgba(0, 212, 255, 0.01)');
+        const observer = new ResizeObserver(drawChart);
+        if (canvas.parentElement) observer.observe(canvas.parentElement);
+        
+        drawChart();
 
-        const points = chartData.values.map((v, i) => ({
-            x: padL + (i / (chartData.values.length - 1)) * chartW,
-            y: padT + chartH - (v / maxVal) * chartH,
-        }));
-
-        // Fill area
-        ctx.beginPath();
-        ctx.moveTo(points[0].x, padT + chartH);
-        points.forEach(p => ctx.lineTo(p.x, p.y));
-        ctx.lineTo(points[points.length - 1].x, padT + chartH);
-        ctx.closePath();
-        ctx.fillStyle = grad;
-        ctx.fill();
-
-        // Line
-        ctx.beginPath();
-        ctx.moveTo(points[0].x, points[0].y);
-        points.forEach(p => ctx.lineTo(p.x, p.y));
-        ctx.strokeStyle = '#00d4ff';
-        ctx.lineWidth = 2.5;
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        ctx.stroke();
-
-        // Dots
-        points.forEach(p => {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
-            ctx.fillStyle = '#00d4ff';
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
-            ctx.fillStyle = '#0a0e17';
-            ctx.fill();
-        });
+        return () => observer.disconnect();
     }, [incidents, chartData]);
 
     // GSAP entrance

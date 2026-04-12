@@ -22,10 +22,12 @@ const Dashboard = () => {
     const { user } = useAuth();
     const [connectedCameras, setConnectedCameras] = useState([]);
     const [liveFeedData, setLiveFeedData] = useState({}); // camera_id -> base64 frame
-    const [dashboardStats, setDashboardStats] = useState(null);
+
     const [footTraffic, setFootTraffic] = useState({ labels: [], values: [] });
     const [networkInfo, setNetworkInfo] = useState(null);
     const [networkError, setNetworkError] = useState('');
+    const [cameraConnectTime, setCameraConnectTime] = useState(null);
+    const [uptimeString, setUptimeString] = useState('0s');
 
     // ─── Live Crime Detection State ───
     const [liveThreatCount, setLiveThreatCount] = useState(0);
@@ -158,22 +160,9 @@ const Dashboard = () => {
         });
     }, []);
 
-    // ─── Fetch dashboard data (callable from WS handler too) ───
-    const fetchDashboardData = useCallback(async () => {
-        try {
-            const statsResponse = await fetch('/api/dashboard/stats');
-            if (statsResponse.ok) {
-                const data = await statsResponse.json();
-                setDashboardStats(data);
-            }
-            const trafficResponse = await fetch('/api/dashboard/foot-traffic?window=24h');
-            if (trafficResponse.ok) {
-                const data = await trafficResponse.json();
-                setFootTraffic(data);
-            }
-        } catch (err) {
-            console.error("Error fetching dashboard data:", err);
-        }
+    // ─── Fetch dashboard data (removed backend fetching for strict live-only stats) ───
+    const fetchDashboardData = useCallback(() => {
+        // No-op: We only use live dynamic data now, no historical backend data.
     }, []);
 
     // ─── Start listening on live WS for a remote camera ───
@@ -260,8 +249,21 @@ const Dashboard = () => {
                             });
                         }
 
-                        // Re-fetch dashboard stats + foot traffic to update charts in real-time
-                        fetchDashboardData();
+                        // Update chart dynamically
+                        setFootTraffic(prev => {
+                            const newValues = prev.values && prev.values.length > 0 ? [...prev.values] : Array(24).fill(0);
+                            const currentHour = new Date().getHours();
+                            newValues[currentHour] = (newValues[currentHour] || 0) + 1;
+                            
+                            // Normalize if needed, though for dynamic we can just show counts directly or scaled
+                            const maxVal = Math.max(...newValues, 1);
+                            const normalized = newValues.map(v => v / maxVal);
+                            
+                            return {
+                                labels: Array(24).fill('').map((_, i) => `${i.toString().padStart(2, '0')}:00`),
+                                values: normalized
+                            };
+                        });
                     }
                 } catch (e) {
                     // Ignore non-JSON messages
@@ -296,6 +298,31 @@ const Dashboard = () => {
         setConnectedCameras(prev => [...prev, { id: camId, type: 'remote', ws: startLiveFeed(camId) }]);
         setShowConnectModal(false);
     };
+
+    // ─── Uptime Logic ───
+    useEffect(() => {
+        let interval;
+        if (connectedCameras.length > 0) {
+            if (!cameraConnectTime) setCameraConnectTime(Date.now());
+            
+            interval = setInterval(() => {
+                const start = cameraConnectTime || Date.now();
+                const diff = Date.now() - start;
+                const minutes = Math.floor(diff / 60000);
+                const seconds = Math.floor((diff % 60000) / 1000);
+                if (minutes > 0) {
+                    setUptimeString(`${minutes}m ${seconds}s`);
+                } else {
+                    setUptimeString(`${seconds}s`);
+                }
+            }, 1000);
+        } else {
+            setCameraConnectTime(null);
+            setUptimeString('0s');
+        }
+
+        return () => clearInterval(interval);
+    }, [connectedCameras.length, cameraConnectTime]);
 
     // ─── Fetch on mount + cleanup ───
     useEffect(() => {
@@ -338,70 +365,67 @@ const Dashboard = () => {
         const canvas = chartRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
-        const dpr = window.devicePixelRatio || 1;
 
-        const resize = () => {
-            const rect = canvas.parentElement.getBoundingClientRect();
+        const drawChart = () => {
+            const parent = canvas.parentElement;
+            if (!parent) return;
+            const rect = parent.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) return;
+
+            const dpr = window.devicePixelRatio || 1;
             canvas.width = rect.width * dpr;
             canvas.height = rect.height * dpr;
             canvas.style.width = rect.width + 'px';
             canvas.style.height = rect.height + 'px';
             ctx.scale(dpr, dpr);
-            drawChart(ctx, rect.width, rect.height);
+
+            const w = rect.width;
+            const h = rect.height;
+
+            ctx.clearRect(0, 0, w, h);
+            const padL = 50, padR = 20, padT = 20, padB = 40;
+            const cw = w - padL - padR;
+            const ch = h - padT - padB;
+
+            ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= 4; i++) {
+                const y = padT + (ch / 4) * i;
+                ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke();
+            }
+
+            let points = footTraffic.values && footTraffic.values.length > 0 ? footTraffic.values : Array(24).fill(0);
+            const getX = (i) => padL + (i / (points.length - 1)) * cw;
+            const getY = (v) => padT + ch - v * ch;
+
+            const grad = ctx.createLinearGradient(0, padT, 0, padT + ch);
+            grad.addColorStop(0, 'rgba(0, 212, 255, 0.15)');
+            grad.addColorStop(1, 'rgba(0, 212, 255, 0)');
+
+            ctx.beginPath(); ctx.moveTo(getX(0), getY(points[0]));
+            for (let i = 1; i < points.length; i++) {
+                ctx.bezierCurveTo((getX(i - 1) + getX(i)) / 2, getY(points[i - 1]), (getX(i - 1) + getX(i)) / 2, getY(points[i]), getX(i), getY(points[i]));
+            }
+            ctx.lineTo(getX(points.length - 1), padT + ch); ctx.lineTo(getX(0), padT + ch); ctx.closePath();
+            ctx.fillStyle = grad; ctx.fill();
+
+            ctx.beginPath(); ctx.moveTo(getX(0), getY(points[0]));
+            for (let i = 1; i < points.length; i++) {
+                ctx.bezierCurveTo((getX(i - 1) + getX(i)) / 2, getY(points[i - 1]), (getX(i - 1) + getX(i)) / 2, getY(points[i]), getX(i), getY(points[i]));
+            }
+            ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2.5; ctx.stroke();
+
+            const xLabels = footTraffic.labels && footTraffic.labels.length > 0 ? footTraffic.labels : ['00:00', '08:00', '16:00', '23:50'];
+            ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '12px Inter, sans-serif'; ctx.textAlign = 'center';
+            xLabels.forEach((l, i) => ctx.fillText(l, padL + (i / (xLabels.length - 1)) * cw, h - 12));
         };
 
-        resize();
-        window.addEventListener('resize', resize);
-        return () => window.removeEventListener('resize', resize);
-    }, []);
+        const observer = new ResizeObserver(drawChart);
+        if (canvas.parentElement) observer.observe(canvas.parentElement);
+        
+        drawChart();
 
-    const drawChart = (ctx, w, h) => {
-        ctx.clearRect(0, 0, w, h);
-        const padL = 50, padR = 20, padT = 20, padB = 40;
-        const cw = w - padL - padR;
-        const ch = h - padT - padB;
-
-        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-        ctx.lineWidth = 1;
-        for (let i = 0; i <= 4; i++) {
-            const y = padT + (ch / 4) * i;
-            ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + cw, y); ctx.stroke();
-        }
-
-        let points = footTraffic.values && footTraffic.values.length > 0 ? footTraffic.values : [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        const getX = (i) => padL + (i / (points.length - 1)) * cw;
-        const getY = (v) => padT + ch - v * ch;
-
-        const grad = ctx.createLinearGradient(0, padT, 0, padT + ch);
-        grad.addColorStop(0, 'rgba(0, 212, 255, 0.15)');
-        grad.addColorStop(1, 'rgba(0, 212, 255, 0)');
-
-        ctx.beginPath(); ctx.moveTo(getX(0), getY(points[0]));
-        for (let i = 1; i < points.length; i++) {
-            ctx.bezierCurveTo((getX(i - 1) + getX(i)) / 2, getY(points[i - 1]), (getX(i - 1) + getX(i)) / 2, getY(points[i]), getX(i), getY(points[i]));
-        }
-        ctx.lineTo(getX(points.length - 1), padT + ch); ctx.lineTo(getX(0), padT + ch); ctx.closePath();
-        ctx.fillStyle = grad; ctx.fill();
-
-        ctx.beginPath(); ctx.moveTo(getX(0), getY(points[0]));
-        for (let i = 1; i < points.length; i++) {
-            ctx.bezierCurveTo((getX(i - 1) + getX(i)) / 2, getY(points[i - 1]), (getX(i - 1) + getX(i)) / 2, getY(points[i]), getX(i), getY(points[i]));
-        }
-        ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2.5; ctx.stroke();
-
-        const xLabels = footTraffic.labels && footTraffic.labels.length > 0 ? footTraffic.labels : ['00:00', '08:00', '16:00', '23:50'];
-        ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '12px Inter, sans-serif'; ctx.textAlign = 'center';
-        xLabels.forEach((l, i) => ctx.fillText(l, padL + (i / (xLabels.length - 1)) * cw, h - 12));
-    };
-
-    // Redraw chart when footTraffic changes
-    useEffect(() => {
-        const canvas = chartRef.current;
-        if (canvas) {
-            const ctx = canvas.getContext('2d');
-            const rect = canvas.parentElement.getBoundingClientRect();
-            drawChart(ctx, rect.width, rect.height);
-        }
+        return () => observer.disconnect();
     }, [footTraffic]);
 
     // ─── Entrance animations ───
@@ -414,13 +438,12 @@ const Dashboard = () => {
 
     const hasConnectedCameras = connectedCameras.length > 0;
 
-    // Combine backend stats + local live threat counter
-    const totalThreats = (dashboardStats?.threats_detected_today || 0) + liveThreatCount;
+    const totalThreats = liveThreatCount;
 
     const liveStatsData = [
         { label: 'ACTIVE CAMERAS', value: connectedCameras.length, change: 'LIVE', positive: true },
-        { label: 'THREATS DETECTED', value: totalThreats, change: liveThreatCount > 0 ? `+${liveThreatCount} live` : `${dashboardStats?.threats_change_pct || 0}%`, positive: liveThreatCount === 0 },
-        { label: 'SYSTEM UPTIME', value: dashboardStats ? `${dashboardStats.system_uptime_pct}%` : '—', change: '—', positive: true },
+        { label: 'THREATS DETECTED', value: totalThreats, change: liveThreatCount > 0 ? `+${liveThreatCount} live` : `0%`, positive: liveThreatCount === 0 },
+        { label: 'SYSTEM UPTIME', value: uptimeString, change: 'ACTIVE', positive: true },
     ];
 
     return (
