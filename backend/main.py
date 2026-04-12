@@ -16,7 +16,7 @@ import re
 import socket
 import os
 
-from config import CORS_ORIGINS, MEDIA_DIR, DATA_DIR
+from config import CORS_ORIGINS, MEDIA_DIR, DATA_DIR, CLIPS_DIR
 from database import engine, Base
 from seed import seed
 
@@ -120,7 +120,8 @@ app.add_middleware(
 
 # ── Static file serving for media ──
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/clips", StaticFiles(directory=str(MEDIA_DIR / "clips")), name="clips")
+CLIPS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/clips", StaticFiles(directory=str(CLIPS_DIR)), name="clips")
 app.mount("/snapshots", StaticFiles(directory=str(MEDIA_DIR / "snapshots")), name="snapshots")
 app.mount("/frames", StaticFiles(directory=str(MEDIA_DIR / "frames")), name="frames")
 

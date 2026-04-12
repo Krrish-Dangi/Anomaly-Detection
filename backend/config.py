@@ -11,7 +11,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 UPLOAD_DIR = DATA_DIR / "uploads"
 MEDIA_DIR = DATA_DIR / "media"
-CLIPS_DIR = MEDIA_DIR / "clips"
+CLIPS_DIR = BASE_DIR / "output"
 SNAPSHOTS_DIR = MEDIA_DIR / "snapshots"
 FRAMES_DIR = MEDIA_DIR / "frames"
 
@@ -49,19 +49,19 @@ UCF_CRIME_CLASSES = [
 # Mapping UCF-Crime classes → frontend event types
 UCF_TO_FRONTEND_EVENT = {
     "Normal": None,
-    "Abuse": "SuspiciousBehavior",
-    "Arrest": "SuspiciousBehavior",
-    "Arson": "SuspiciousBehavior",
-    "Assault": "SuspiciousBehavior",
-    "Burglary": "SuspiciousBehavior",
-    "Explosion": "SuspiciousBehavior",
-    "Fighting": "SuspiciousBehavior",
-    "RoadAccidents": "SuspiciousBehavior",
-    "Robbery": "SuspiciousBehavior",
-    "Shooting": "SuspiciousBehavior",
-    "Shoplifting": "ShelfTampering",
-    "Stealing": "ShelfTampering",
-    "Vandalism": "ShelfTampering",
+    "Abuse": "Abuse",
+    "Arrest": "Arrest",
+    "Arson": "Arson",
+    "Assault": "Assault",
+    "Burglary": "Burglary",
+    "Explosion": "Explosion",
+    "Fighting": "Fighting",
+    "RoadAccidents": "RoadAccidents",
+    "Robbery": "Robbery",
+    "Shooting": "Shooting",
+    "Shoplifting": "Shoplifting",
+    "Stealing": "Stealing",
+    "Vandalism": "Vandalism",
 }
 
 # ── UCF Crime Dataset ──

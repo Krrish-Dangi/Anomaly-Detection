@@ -241,7 +241,13 @@ const EventHistory = () => {
     const mostFrequentEvent = mostFrequent ? mostFrequent[0] : '—';
 
     // Get unique event types for filter dropdown
-    const eventTypes = [...new Set(incidents.map(i => i.event_type))];
+    const ALL_CLASSES = [
+        "Abuse", "Arrest", "Arson", "Assault", "Burglary", 
+        "Explosion", "Fighting", "RoadAccidents", "Robbery", "Shooting", 
+        "Shoplifting", "Stealing", "Vandalism"
+    ];
+    // Merge full list with any potential legacy event names
+    const eventTypes = [...new Set([...ALL_CLASSES, ...incidents.map(i => i.event_type)])].filter(Boolean);
     
     // Get unique cameras for filter dropdown
     const cameraIds = [...new Set(incidents.map(i => i.camera_id).filter(Boolean))];
