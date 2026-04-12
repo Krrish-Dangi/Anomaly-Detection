@@ -31,7 +31,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from config import (
     UCF_CRIME_CLASSES, UCF_TO_FRONTEND_EVENT,
-    CLIP_LENGTH, FRAME_SIZE, NUM_CLASSES, BASE_DIR,
+    CLIP_LENGTH, FRAME_SIZE, NUM_CLASSES, BASE_DIR, CLIPS_DIR
 )
 
 router = APIRouter(tags=["WebSocket"])
@@ -113,6 +113,161 @@ CONF_THRESHOLD = 0.90        # minimum smoothed confidence to trigger alert
 COOLDOWN_SECONDS = 3.0       # minimum seconds between consecutive alerts
 SMOOTHING_ALPHA = 0.6        # exponential smoothing weight for current frame
 MOTION_THRESHOLD = 15.0      # avg wrist velocity to consider as "motion present"
+
+
+# ─────────────────────────────────────────────
+# Video Clip Recording Engine — Event-Based State Machine (Time-Driven)
+# ─────────────────────────────────────────────
+#
+# Design:
+#   _tick_recording() is called for EVERY ingested frame and handles ALL logic:
+#     1. Maintains a rolling pre-roll buffer (_raw_buffers).
+#     2. Tracks active anomaly events in _active_events.
+#     3. Uses wall-clock time (not frame counts) for all phase transitions:
+#        - RECORDING: anomaly is active. Frames accumulate.
+#        - POST_ROLL: anomaly stopped. After 5s of silence, clip is saved.
+#     4. Only ONE history entry per event. Continuous anomaly = ONE event.
+#
+#   _on_anomaly_detected() is called from the inference thread:
+#     - If no active event: starts a new one (returns True → caller logs + broadcasts)
+#     - If active event: refreshes last_anomaly_time and returns False (no duplicate)
+#
+
+# Timing constants
+PRE_ROLL_SECONDS = 5.0     # seconds of footage before anomaly start
+POST_ROLL_SECONDS = 5.0    # seconds of silence after anomaly ends before saving
+ANOMALY_STALE_SECONDS = 3.0  # if no anomaly detection for this long, start post-roll
+PRE_ROLL_FRAMES = 58       # ~7.7s at 7.5 FPS (generous buffer for 5s pre-roll)
+
+# camera_id -> deque of recent raw frames (BGR numpy arrays)
+_raw_buffers: dict[str, deque] = {}
+
+# camera_id -> active event state dict or None
+# {
+#     "event_id": str,
+#     "phase": "RECORDING" | "POST_ROLL",
+#     "frames": list[np.ndarray],
+#     "anomaly_count": int,
+#     "last_anomaly_time": float,     # time.time() of the most recent anomaly detection
+#     "post_roll_deadline": float,    # time.time() when POST_ROLL should end and clip is saved
+#     "alert_data": dict,             # the original alert payload
+# }
+_active_events: dict[str, dict] = {}
+
+
+def _save_clip_to_disk(camera_id: str, event_id: str, frames: list, anomaly_count: int):
+    """Background thread: write accumulated frames to a single MP4 clip on disk."""
+    if not frames:
+        print(f"[CLIP] ⚠️ No frames to save for event {event_id[:8]}… on {camera_id}")
+        return
+    try:
+        cam_dir = CLIPS_DIR / camera_id
+        cam_dir.mkdir(parents=True, exist_ok=True)
+        out_path = str(cam_dir / f"{event_id}.mp4")
+
+        h, w = frames[0].shape[:2]
+        fourcc = cv2.VideoWriter_fourcc(*'avc1')
+        writer = cv2.VideoWriter(out_path, fourcc, 7.5, (w, h))
+        if not writer.isOpened():
+            print(f"[CLIP] ❌ Failed to open VideoWriter for {out_path}")
+            return
+        for f in frames:
+            writer.write(f)
+        writer.release()
+
+        duration_sec = round(len(frames) / 7.5, 1)
+        print(f"[CLIP] ✅ Saved {out_path} — {len(frames)} frames, "
+              f"~{duration_sec}s, {anomaly_count} anomaly detections bundled")
+    except Exception as e:
+        print(f"[CLIP] ❌ Error saving clip for {camera_id}: {e}")
+
+
+def _on_anomaly_detected(camera_id: str, alert_data: dict):
+    """
+    Called from the inference thread when an anomaly is confirmed.
+    Returns True if this is a NEW event (caller should broadcast), False if extending existing.
+    """
+    now = time.time()
+
+    with _pending_alerts_lock:
+        evt = _active_events.get(camera_id)
+
+        if evt is not None:
+            # ── Existing event: extend it ──
+            evt["phase"] = "RECORDING"
+            evt["last_anomaly_time"] = now
+            evt["anomaly_count"] += 1
+            return False  # suppress duplicate alert — same event continues
+
+        # ── New event: start recording ──
+        event_id = alert_data["event_id"]
+        pre_roll = list(_raw_buffers.get(camera_id, []))[-PRE_ROLL_FRAMES:]
+
+        _active_events[camera_id] = {
+            "event_id": event_id,
+            "phase": "RECORDING",
+            "frames": list(pre_roll),           # seed with ~5s of past footage
+            "anomaly_count": 1,
+            "last_anomaly_time": now,
+            "post_roll_deadline": 0.0,
+            "alert_data": alert_data,
+        }
+        print(f"[CLIP] 🎬 New event started on {camera_id} — pre-roll: {len(pre_roll)} frames")
+        return True  # new event, caller should log + broadcast
+
+
+def _tick_recording(camera_id: str, frame: np.ndarray):
+    """
+    Called for EVERY ingested frame. Handles ALL recording logic autonomously:
+      1. Always append frame to _raw_buffers (rolling pre-roll window).
+      2. If an event is active, append the frame to the event.
+      3. Phase transitions are driven by wall-clock time:
+         - RECORDING → POST_ROLL: when no anomaly detected for ANOMALY_STALE_SECONDS
+         - POST_ROLL → finalize:  when post_roll_deadline is reached
+         - POST_ROLL → RECORDING: if _on_anomaly_detected() resets the phase
+    """
+    # 1. Always maintain the rolling pre-roll buffer
+    if camera_id not in _raw_buffers:
+        _raw_buffers[camera_id] = deque(maxlen=PRE_ROLL_FRAMES)
+    _raw_buffers[camera_id].append(frame.copy())
+
+    # 2. Check for active event
+    with _pending_alerts_lock:
+        evt = _active_events.get(camera_id)
+        if evt is None:
+            return
+
+        now = time.time()
+
+        # Append the current frame to the event clip
+        evt["frames"].append(frame.copy())
+
+        if evt["phase"] == "RECORDING":
+            # Check if anomaly has gone stale → transition to POST_ROLL
+            silence_duration = now - evt["last_anomaly_time"]
+            if silence_duration >= ANOMALY_STALE_SECONDS:
+                evt["phase"] = "POST_ROLL"
+                evt["post_roll_deadline"] = now + POST_ROLL_SECONDS
+                print(f"[CLIP] ⏳ Event {evt['event_id'][:8]}… entering post-roll "
+                      f"({evt['anomaly_count']} detections so far)")
+
+        elif evt["phase"] == "POST_ROLL":
+            # Check if post-roll deadline has passed → finalize clip
+            if now >= evt["post_roll_deadline"]:
+                finished_evt = _active_events.pop(camera_id)
+                threading.Thread(
+                    target=_save_clip_to_disk,
+                    args=(
+                        camera_id,
+                        finished_evt["event_id"],
+                        finished_evt["frames"],
+                        finished_evt["anomaly_count"],
+                    ),
+                    daemon=True,
+                ).start()
+                print(f"[CLIP] 🎬 Event {finished_evt['event_id'][:8]}… finalized — "
+                      f"{len(finished_evt['frames'])} total frames, "
+                      f"{finished_evt['anomaly_count']} anomaly detections")
 
 
 def _preprocess_frame_for_lstm(frame_bgr: np.ndarray) -> np.ndarray:
@@ -290,6 +445,7 @@ def _save_event_to_db(event_data: dict):
             camera_id=event_data.get("camera_id", "LIVE"),
             timestamp=datetime.now(timezone.utc),
             confidence=event_data.get("confidence", 0),
+            clip_url=event_data.get("clip_url", ""),
             frame_number=0,
         )
         db.add(event)
@@ -509,53 +665,54 @@ def _lstm_inference_loop(camera_id: str):
         conf_buffer.append(smooth_conf)
 
         # ── Step 5: Alert Gating ──
-        # Only fire if class is NOT Normal
-        if final_class == "Normal":
-            continue
+        is_anomaly = False
 
-        # Require last 5 smoothed values all above threshold
-        recent = list(conf_buffer)[-5:]
-        if len(recent) < 5 or not all(c > CONF_THRESHOLD for c in recent):
-            continue
+        # Only consider anomalous if class is NOT Normal
+        if final_class != "Normal":
+            # Require last 5 smoothed values all above threshold
+            recent = list(conf_buffer)[-5:]
+            if len(recent) >= 5 and all(c > CONF_THRESHOLD for c in recent):
+                is_anomaly = True
 
-        # ── Cooldown check ──
-        now = time.time()
-        last_alert_time = _last_alert_times.get(camera_id, 0.0)
-        if now - last_alert_time < COOLDOWN_SECONDS:
-            continue
-        _last_alert_times[camera_id] = now
+        if is_anomaly:
+            # ── Anomaly confirmed: notify the event state machine ──
+            conf_percent = int(smooth_conf * 100)
+            frontend_type = UCF_TO_FRONTEND_EVENT.get(final_class, "SuspiciousBehavior")
 
-        # ── Step 6: Build and queue the alert ──
-        conf_percent = int(smooth_conf * 100)
-        frontend_type = UCF_TO_FRONTEND_EVENT.get(final_class, "SuspiciousBehavior")
+            event_id = str(uuid.uuid4())
+            clip_url = f"/clips/{camera_id}/{event_id}.mp4"
 
-        alert_data = {
-            "event_id": str(uuid.uuid4()),
-            "type": frontend_type,
-            "ucf_class": final_class,
-            "confidence": conf_percent,
-            "camera_id": camera_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "message": f"{final_class} detected on {camera_id} ({conf_percent}%)",
-            "severity_level": severity_level,
-            "decision_mode": decision_mode,
-            "reason_tags": reason_tags,
-        }
+            alert_data = {
+                "event_id": event_id,
+                "type": frontend_type,
+                "ucf_class": final_class,
+                "confidence": conf_percent,
+                "camera_id": camera_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "message": f"{final_class} detected on {camera_id} ({conf_percent}%)",
+                "severity_level": severity_level,
+                "decision_mode": decision_mode,
+                "reason_tags": reason_tags,
+                "clip_url": clip_url,
+            }
 
-        print(f"[HYBRID] 🚨 {final_class} on {camera_id} ({conf_percent}%) "
-              f"[{severity_level}] [{decision_mode}]")
+            is_new_event = _on_anomaly_detected(camera_id, alert_data)
 
-        # Log to filesystem
-        _log_event_to_file(camera_id, alert_data)
+            if is_new_event:
+                # This is the START of a brand-new anomaly event.
+                # Log, save to DB, and broadcast ONCE.
+                print(f"[HYBRID] 🚨 {final_class} on {camera_id} ({conf_percent}%) "
+                      f"[{severity_level}] [{decision_mode}]")
 
-        # Save to SQLite
-        _save_event_to_db(alert_data)
+                _log_event_to_file(camera_id, alert_data)
+                _save_event_to_db(alert_data)
 
-        # Queue for async broadcast
-        with _pending_alerts_lock:
-            if camera_id not in _pending_crime_alerts:
-                _pending_crime_alerts[camera_id] = []
-            _pending_crime_alerts[camera_id].append(alert_data)
+                with _pending_alerts_lock:
+                    if camera_id not in _pending_crime_alerts:
+                        _pending_crime_alerts[camera_id] = []
+                    _pending_crime_alerts[camera_id].append(alert_data)
+            # else: existing event extended silently — no duplicate log/alert
+        # else: no anomaly this cycle — _tick_recording() handles post-roll transition automatically
 
         # Check if camera still active
         if camera_id not in _lstm_locks:
@@ -595,6 +752,8 @@ def _stop_lstm_for_camera(camera_id: str):
     _pose_data.pop(camera_id, None)
     _hybrid_conf_buffers.pop(camera_id, None)
     _last_alert_times.pop(camera_id, None)
+    _raw_buffers.pop(camera_id, None)
+    _active_events.pop(camera_id, None)
     with _pending_alerts_lock:
         _pending_crime_alerts.pop(camera_id, None)
 
@@ -651,6 +810,9 @@ async def ingest_stream(websocket: WebSocket, camera_id: str):
             frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
             if frame is not None:
+                # Tick the recording state machine (handles pre-roll buffer + active recording + post-roll finalization)
+                _tick_recording(camera_id, frame)
+
                 result = tracker.process_frame(frame)
                 
                 # Feed every frame to LSTM buffer (background thread handles inference)

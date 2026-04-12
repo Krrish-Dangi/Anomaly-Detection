@@ -1,6 +1,6 @@
 # 🛡️ SentinelAI: Real-Time Smart Retail Surveillance Platform
 
-SentinelAI is an intelligent, live-streaming surveillance dashboard designed for retail environments. Moving beyond traditional offline video analysis, this platform provides **zero-latency real-time threat detection**. It achieves this by turning any mobile device into a secure security camera that streams over WebSockets via Ngrok tunnels, directly feeding into a high-speed YOLO + DeepSORT tracking backend.
+SentinelAI is an intelligent, live-streaming surveillance dashboard designed for retail environments. Moving beyond traditional offline video analysis, this platform provides **zero-latency real-time threat detection**. It achieves this by turning any mobile device into a secure security camera that streams over WebSockets via dynamic Cloudflare Tunnels, directly feeding into a high-speed YOLO + DeepSORT tracking backend.
 
 ---
 
@@ -32,7 +32,7 @@ The SentinelAI architecture is built for maximum speed and real-time responsiven
 - **YOLO (Object Detection)** — High-speed, single-pass neural network engineered for lightning-fast bounding box detection of people and objects.
 - **DeepSORT (Object Tracking)** — Ensures persistent identity tracking across frames so that movement, behavior, and paths are recognized continuously rather than flash-detected.
 - **OpenCV** — Real-time headless video frame manipulation.
-- **Ngrok** — Secure public tunneling to expose the local WebSocket streams to mobile phones over HTTPS.
+- **Cloudflare Tunnel (`cloudflared`)** — Secure public tunneling to expose local UI and WebSocket streams to mobile phones over HTTPS. Managed natively by the backend.
 
 ---
 
@@ -50,14 +50,11 @@ We have decoupled the system into independent frontend and backend servers. Sinc
 ### Step 1: External Service Setup (Important!)
 SentinelAI heavily relies on two external services for its real-time functionality. You **must** configure these before running the app.
 
-#### 1A. Install & Configure Ngrok (For WebSocket Streaming)
-Ngrok creates a secure tunnel from the public internet to your local machine, allowing mobile phones to stream video frames to your local AI engine.
-1. Sign up for a free account at [Ngrok](https://ngrok.com/).
-2. Download the Ngrok executable for your OS and install it.
-3. Authenticate your local Ngrok installation in your terminal using your unique authtoken from the Ngrok dashboard:
-   ```bash
-   ngrok config add-authtoken YOUR_NGROK_AUTH_TOKEN
-   ```
+#### 1A. Install Cloudflare Tunnel (`cloudflared`)
+Cloudflare creates a secure tunnel from the public internet to your local machine, allowing mobile phones to access the UI and stream video frames securely to the AI engine over HTTPS.
+1. Download and install `cloudflared` for your OS: [Cloudflare Tunnel Downloads](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/).
+2. Ensure the `cloudflared` executable is added to your system's PATH. 
+3. *Note: There is no manual configuration required. The FastAPI backend automatically spawns the tunnel and captures the dynamic `.trycloudflare.com` URL on startup.*
 
 #### 1B. Create a Supabase Project (For Database & Auth)
 Supabase is used for user authentication and storing the persistent incident logs.
@@ -86,17 +83,11 @@ VITE_SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_KEY"
 
 ---
 
-### Step 4: Ngrok & Backend Setup
+### Step 4: Start the AI Backend & Tunnel
 
-To allow an external mobile phone to connect as a camera to your local AI engine, your backend and WebSocket connections must be exposed securely over HTTPS via Ngrok.
+The backend will automatically start the AI models and spawn the Cloudflare Tunnel in the background.
 
-1. **Start Ngrok** (In a new terminal window):
-   ```bash
-   ngrok http 8000
-   ```
-   *Take note of the provided `https://<YOUR_NGROK_ID>.ngrok.app` URL. You will use this to connect your mobile devices.*
-
-2. **Start the AI Backend** (In a second terminal window):
+1. **Start the AI Backend** (In a new terminal window):
    ```bash
    cd backend
    
@@ -110,6 +101,7 @@ To allow an external mobile phone to connect as a camera to your local AI engine
    # Run the server
    uvicorn main:app --reload --port 8000
    ```
+   *The terminal console will print `✅ Tunnel acquired: https://<random>.trycloudflare.com` once the tunnel is active.*
 
 *(Note: Ensure your YOLO model weights are properly initialized inside `backend/ai/weights/` before starting the stream).*
 
@@ -117,9 +109,9 @@ To allow an external mobile phone to connect as a camera to your local AI engine
 
 ### Step 5: Start the Frontend UI
 
-With your backend and Ngrok tunnel actively running, launch the frontend dashboard. 
+With your backend running, launch the frontend dashboard. 
 
-1. **Start the Web UI** (In a third terminal window):
+1. **Start the Web UI** (In a second terminal window):
    ```bash
    # Make sure you are in the project root: Anomaly-Detection
    npm install
@@ -130,7 +122,7 @@ With your backend and Ngrok tunnel actively running, launch the frontend dashboa
 2. **Connect to the System:**
    - Open your browser to the local URL (usually `http://localhost:5173`).
    - Log in using your Supabase credentials.
-   - Use the **Connect Camera** interface on the dashboard to scan the QR code (generated by your Ngrok address) using your mobile phone. Your live stream will instantly appear on the dashboard!
+   - Use the **Connect Camera** interface on the dashboard to scan the securely generated QR code using your mobile phone. Your live stream will instantly appear on the dashboard!
 
 ---
 

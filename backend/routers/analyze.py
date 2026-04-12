@@ -24,7 +24,7 @@ from models import AnalysisJob, Event
 from schemas import AnalysisResponse, DetectionLog, EventSchema, BBox
 from config import (
     UPLOAD_DIR, UCF_TO_FRONTEND_EVENT, UCF_CRIME_CLASSES,
-    CLIP_LENGTH, NUM_CLASSES,
+    CLIP_LENGTH, NUM_CLASSES, CLIPS_DIR,
 )
 
 router = APIRouter(prefix="/api", tags=["Analysis"])
@@ -210,10 +210,71 @@ class SimplePersonTracker:
         return self.next_id - 1
 
 
-def _conclude_event(job_id, evt, fps):
-    """Send a concluded anomaly event via SSE."""
+def _extract_clip_from_video(video_path: str, event_id: str, start_frame: int, end_frame: int, fps: float):
+    """
+    Extract a clip from the uploaded video file covering the anomaly event
+    with 5 seconds of pre-roll and 5 seconds of post-roll padding.
+    Saves to clips/uploaded/{event_id}.mp4
+    Returns the clip_url path string, or empty string on failure.
+    """
+    import cv2
+    try:
+        pad_frames = int(fps * 5)  # 5 seconds padding
+        clip_start = max(0, start_frame - pad_frames)
+        clip_end = end_frame + pad_frames
+
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            print(f"[CLIP] ❌ Cannot open video for clip extraction: {video_path}")
+            return ""
+
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        clip_end = min(clip_end, total)
+        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        out_dir = CLIPS_DIR / "uploaded"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = str(out_dir / f"{event_id}.mp4")
+
+        fourcc = cv2.VideoWriter_fourcc(*'avc1')
+        writer = cv2.VideoWriter(out_path, fourcc, fps, (w, h))
+        if not writer.isOpened():
+            cap.release()
+            print(f"[CLIP] ❌ Cannot open VideoWriter for {out_path}")
+            return ""
+
+        cap.set(cv2.CAP_PROP_POS_FRAMES, clip_start)
+        for _ in range(clip_end - clip_start):
+            ret, frame = cap.read()
+            if not ret:
+                break
+            writer.write(frame)
+
+        writer.release()
+        cap.release()
+
+        duration = round((clip_end - clip_start) / fps, 1)
+        print(f"[CLIP] ✅ Uploaded video clip saved: {out_path} (~{duration}s)")
+        return f"/clips/uploaded/{event_id}.mp4"
+    except Exception as e:
+        print(f"[CLIP] ❌ Error extracting clip: {e}")
+        return ""
+
+
+def _conclude_event(job_id, evt, fps, video_path=None):
+    """Send a concluded anomaly event via SSE. Optionally extract a clip."""
     start_sec = evt['start_frame'] / fps if fps > 0 else 0
     end_sec = evt['end_frame'] / fps if fps > 0 else 0
+
+    # Extract clip from the source video if path is provided
+    clip_url = ""
+    if video_path:
+        clip_url = _extract_clip_from_video(
+            video_path, evt['event_id'], evt['start_frame'], evt['end_frame'], fps
+        )
+    evt['clip_url'] = clip_url
+
     data = {
         "event_id": evt.get('event_id', str(uuid.uuid4())),
         "type": evt['frontend_type'],
@@ -225,6 +286,7 @@ def _conclude_event(job_id, evt, fps):
         "peak_confidence": evt['peak_conf'],
         "duration_sec": round(end_sec - start_sec, 1),
         "clip_count": evt['clip_count'],
+        "clip_url": clip_url,
     }
     _push_event(job_id, "event_concluded", data)
     # Also send as a log entry
@@ -345,9 +407,10 @@ def _process_with_model(job_id, video_path, detector, total_frames, fps, width, 
                         current_event['end_frame'] = start_frame + CLIP_LENGTH
                         current_event['peak_conf'] = max(current_event['peak_conf'], conf)
                         current_event['clip_count'] += 1
+                        current_event['stale_frames'] = 0
                     else:
                         if current_event:
-                            _conclude_event(job_id, current_event, fps)
+                            _conclude_event(job_id, current_event, fps, video_path)
                             concluded_events.append(current_event)
                         current_event = {
                             'event_id': str(uuid.uuid4()),
@@ -357,12 +420,18 @@ def _process_with_model(job_id, video_path, detector, total_frames, fps, width, 
                             'end_frame': start_frame + CLIP_LENGTH,
                             'peak_conf': conf,
                             'clip_count': 1,
+                            'stale_frames': 0,
                         }
                 else:
                     if current_event:
-                        _conclude_event(job_id, current_event, fps)
-                        concluded_events.append(current_event)
-                        current_event = None
+                        current_event['stale_frames'] += stride
+                        if current_event['stale_frames'] > (fps * 3.0): # 3 second cooldown
+                            _conclude_event(job_id, current_event, fps, video_path)
+                            concluded_events.append(current_event)
+                            current_event = None
+                        else:
+                            # keep extending end frame, but not clip count or conf
+                            current_event['end_frame'] = start_frame + CLIP_LENGTH
 
                 _push_event(job_id, "stats", {
                     "people_detected": max_concurrent_people,
@@ -384,7 +453,7 @@ def _process_with_model(job_id, video_path, detector, total_frames, fps, width, 
 
     # Conclude final event
     if current_event:
-        _conclude_event(job_id, current_event, fps)
+        _conclude_event(job_id, current_event, fps, video_path)
         concluded_events.append(current_event)
 
     # Final summary
@@ -415,6 +484,7 @@ def _process_with_model(job_id, video_path, detector, total_frames, fps, width, 
             timestamp=datetime.now(timezone.utc),
             confidence=evt['peak_conf'],
             frame_number=evt['start_frame'],
+            clip_url=evt.get('clip_url', ''),
         )
         db.add(event)
 
@@ -492,9 +562,10 @@ def _process_mock(job_id, video_path, total_frames, fps, width, height, db, job)
                 current_event['end_frame'] = start_frame + CLIP_LENGTH
                 current_event['peak_conf'] = max(current_event['peak_conf'], conf)
                 current_event['clip_count'] += 1
+                current_event['stale_frames'] = 0
             else:
                 if current_event:
-                    _conclude_event(job_id, current_event, fps)
+                    _conclude_event(job_id, current_event, fps, video_path)
                     concluded_events.append(current_event)
                 current_event = {
                     'event_id': str(uuid.uuid4()),
@@ -504,12 +575,18 @@ def _process_mock(job_id, video_path, total_frames, fps, width, height, db, job)
                     'end_frame': start_frame + CLIP_LENGTH,
                     'peak_conf': conf,
                     'clip_count': 1,
+                    'stale_frames': 0,
                 }
         else:
             if current_event:
-                _conclude_event(job_id, current_event, fps)
-                concluded_events.append(current_event)
-                current_event = None
+                stride = CLIP_LENGTH // 2
+                current_event['stale_frames'] += stride
+                if current_event['stale_frames'] > (fps * 3.0):
+                    _conclude_event(job_id, current_event, fps, video_path)
+                    concluded_events.append(current_event)
+                    current_event = None
+                else:
+                    current_event['end_frame'] = start_frame + CLIP_LENGTH
 
         # Progress + stats
         _push_event(job_id, "progress", {
@@ -527,7 +604,7 @@ def _process_mock(job_id, video_path, total_frames, fps, width, height, db, job)
 
     # Conclude final event
     if current_event:
-        _conclude_event(job_id, current_event, fps)
+        _conclude_event(job_id, current_event, fps, video_path)
         concluded_events.append(current_event)
 
     total_suspicious = len(concluded_events)
@@ -556,6 +633,7 @@ def _process_mock(job_id, video_path, total_frames, fps, width, height, db, job)
             timestamp=datetime.now(timezone.utc),
             confidence=evt['peak_conf'],
             frame_number=evt['start_frame'],
+            clip_url=evt.get('clip_url', ''),
         )
         db.add(event)
 

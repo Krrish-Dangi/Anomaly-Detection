@@ -24,6 +24,8 @@ const Dashboard = () => {
     const [liveFeedData, setLiveFeedData] = useState({}); // camera_id -> base64 frame
     const [dashboardStats, setDashboardStats] = useState(null);
     const [footTraffic, setFootTraffic] = useState({ labels: [], values: [] });
+    const [networkInfo, setNetworkInfo] = useState(null);
+    const [networkError, setNetworkError] = useState('');
 
     // ─── Live Crime Detection State ───
     const [liveThreatCount, setLiveThreatCount] = useState(0);
@@ -44,10 +46,12 @@ const Dashboard = () => {
         const camId = generateCameraId();
         setQrCameraId(camId);
 
-        // Build the URL using the current host
-        const baseUrl = `${window.location.protocol}//${window.location.host}`;
-        const cameraUrl = `${baseUrl}/camera?camId=${camId}&token=demo`;
-        setQrUrl(cameraUrl);
+        if (networkInfo && networkInfo.cloudflare_url) {
+            const cameraUrl = `${networkInfo.cloudflare_url}/camera?camId=${camId}&token=demo`;
+            setQrUrl(cameraUrl);
+        } else {
+            setQrUrl('');
+        }
         setShowConnectModal(true);
     };
 
@@ -251,6 +255,7 @@ const Dashboard = () => {
                                     severity_level: data.alert.severity_level || "",
                                     decision_mode: data.alert.decision_mode || "",
                                     reason_tags: data.alert.reason_tags || [],
+                                    clip_url: data.alert.clip_url || "",
                                 }
                             });
                         }
@@ -295,6 +300,21 @@ const Dashboard = () => {
     // ─── Fetch on mount + cleanup ───
     useEffect(() => {
         fetchDashboardData();
+
+        // Fetch network info for Cloudflare tunnel
+        fetch('/api/system/network')
+            .then(res => {
+                if (!res.ok) throw new Error("Network response was not ok");
+                return res.json();
+            })
+            .then(data => {
+                if (data.cloudflare_url) {
+                    setNetworkInfo(data);
+                } else {
+                    setNetworkError("Cloudflare Tunnel not ready. Please check backend logs.");
+                }
+            })
+            .catch(err => setNetworkError("Error reaching backend network API: " + err.message));
 
         return () => {
             // Stop all local cameras
@@ -572,30 +592,48 @@ const Dashboard = () => {
 
                         {/* Option 2: QR Code for remote device */}
                         <div className="qr-section">
-                            <div className="qr-modal-code-wrap">
-                                <QRCodeSVG
-                                    value={qrUrl}
-                                    size={120}
-                                    bgColor="#ffffff"
-                                    fgColor="#0a0a0f"
-                                    level="M"
-                                    includeMargin={true}
-                                />
-                            </div>
+                            {qrUrl ? (
+                                <>
+                                    <div className="qr-modal-code-wrap">
+                                        <QRCodeSVG
+                                            value={qrUrl}
+                                            size={120}
+                                            bgColor="#ffffff"
+                                            fgColor="#0a0a0f"
+                                            level="M"
+                                            includeMargin={true}
+                                        />
+                                    </div>
 
-                            <div className="qr-modal-cam-id">
-                                Camera ID: <strong>{qrCameraId}</strong>
-                            </div>
+                                    <div className="qr-modal-cam-id">
+                                        Camera ID: <strong>{qrCameraId}</strong>
+                                    </div>
 
-                            <div className="qr-modal-url-row">
-                                <span className="qr-modal-url">{qrUrl}</span>
-                                <button
-                                    className="qr-modal-copy"
-                                    onClick={() => navigator.clipboard.writeText(qrUrl)}
-                                >
-                                    Copy
-                                </button>
-                            </div>
+                                    <div className="qr-modal-url-row">
+                                        <span className="qr-modal-url">{qrUrl}</span>
+                                        <button
+                                            className="qr-modal-copy"
+                                            onClick={() => navigator.clipboard.writeText(qrUrl)}
+                                        >
+                                            Copy
+                                        </button>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="qr-modal-waiting" style={{ padding: '20px', textAlign: 'center' }}>
+                                    {networkError ? (
+                                        <div style={{ color: '#fca5a5' }}>
+                                            <strong>⚠️ Network Error:</strong> <br/>{networkError}
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div className="dash-feed-spinner" style={{ margin: '0 auto 10px' }} />
+                                            <div>Waiting for Cloudflare Tunnel URL...</div>
+                                            <div style={{fontSize: 12, opacity: 0.7, marginTop: 8}}>Fetching secure HTTPS link.</div>
+                                        </>
+                                    )}
+                                </div>
+                            )}
 
                             <div className="qr-modal-steps">
                                 <div className="qr-modal-step">
@@ -618,13 +656,7 @@ const Dashboard = () => {
                                     <line x1="12" y1="16" x2="12" y2="12" />
                                     <line x1="12" y1="8" x2="12.01" y2="8" />
                                 </svg>
-                                {window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? (
-                                    <span style={{ color: '#fca5a5' }}>
-                                        <strong>⚠️ Localhost Detected:</strong> The QR code points to your laptop, but your phone will fail to connect. Close this tab and reopen the dashboard using your <strong>Network IP</strong> (check your Vite terminal) so the phone can connect to your PC.
-                                    </span>
-                                ) : (
-                                    <span>Both devices must be on the same Wi-Fi network. Mobile requires HTTPS for camera access.</span>
-                                )}
+                                <span>Powered by Cloudflare Tunnel for secure remote camera streaming.</span>
                             </div>
 
                             <button className="qr-modal-confirm" onClick={handleQrScanned}>

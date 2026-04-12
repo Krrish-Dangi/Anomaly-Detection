@@ -149,6 +149,7 @@ const VideoAnalysis = () => {
                         clip_count: evt.clip_count,
                         source: 'video_analysis',
                         file_name: selectedFile?.name || 'unknown',
+                        clip_url: evt.clip_url || '',
                     },
                 }));
 

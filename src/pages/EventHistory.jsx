@@ -26,6 +26,9 @@ const EventHistory = () => {
     const [confidence, setConfidence] = useState(80);
     const [incidents, setIncidents] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [selectedVideo, setSelectedVideo] = useState(null);
+    const [localIp, setLocalIp] = useState(null);
+    const [networkError, setNetworkError] = useState('');
     const isLocked = !isAuthenticated;
 
     // Fetch incidents from Supabase
@@ -51,7 +54,22 @@ const EventHistory = () => {
             setLoading(false);
         };
 
+        const fetchNetwork = async () => {
+            try {
+                const res = await fetch('/api/system/network');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.local_ip) setLocalIp(data.local_ip);
+                } else {
+                    setNetworkError("Failed to fetch local network config.");
+                }
+            } catch (e) {
+                setNetworkError("Error reaching API.");
+            }
+        };
+
         fetchIncidents();
+        fetchNetwork();
     }, [isAuthenticated, user]);
 
     // Build chartData dynamically from real incidents
@@ -342,6 +360,26 @@ const EventHistory = () => {
                             </div>
                             <div className="eh-incident-actions">
                                 <span className="eh-incident-confidence">Confidence: {item.confidence}%</span>
+                                {item.metadata?.clip_url && (
+                                    <button
+                                        className="eh-view-clip-btn"
+                                        onClick={() => {
+                                            if (localIp) {
+                                                setSelectedVideo(`http://${localIp}:8000${item.metadata.clip_url}`);
+                                            } else {
+                                                alert("Local IP is unreachable for secure LAN video streaming. " + networkError);
+                                            }
+                                        }}
+                                        style={{ display: 'flex', alignItems: 'center', marginTop: '10px', background: 'rgba(0, 212, 255, 0.1)', color: '#00d4ff', border: '1px solid rgba(0, 212, 255, 0.2)', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '13px', transition: 'all 0.2s', fontWeight: 600 }}
+                                        onMouseEnter={e => e.target.style.background = 'rgba(0, 212, 255, 0.2)'}
+                                        onMouseLeave={e => e.target.style.background = 'rgba(0, 212, 255, 0.1)'}
+                                    >
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{marginRight: '6px'}}>
+                                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                        </svg>
+                                        View Clip
+                                    </button>
+                                )}
                             </div>
                         </div>
                     ))}
@@ -379,6 +417,27 @@ const EventHistory = () => {
                         <p className="eh-lock-footer-text">
                             Unlock full surveillance insights in seconds.
                         </p>
+                    </div>
+                </div>
+            )}
+
+            {/* === Video Player Modal === */}
+            {selectedVideo && (
+                <div onClick={() => setSelectedVideo(null)} style={{position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(5, 7, 10, 0.9)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(8px)'}}>
+                    <div onClick={e => e.stopPropagation()} style={{position: 'relative', width: '90%', maxWidth: '800px', backgroundColor: '#0a0e17', borderRadius: '12px', padding: '16px', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)'}}>
+                        <button onClick={() => setSelectedVideo(null)} style={{position: 'absolute', top: '-40px', right: '0', background: 'none', border: 'none', color: '#fff', cursor: 'pointer', opacity: 0.7, padding: '8px'}} onMouseEnter={e => e.target.style.opacity=1} onMouseLeave={e => e.target.style.opacity=0.7}>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                        <div style={{fontWeight: 600, color: 'white', marginBottom: '12px', fontSize: '15px'}}>Anomaly Playback</div>
+                        <video 
+                            src={selectedVideo} 
+                            controls 
+                            autoPlay 
+                            style={{width: '100%', borderRadius: '8px', backgroundColor: '#000'}}
+                        />
                     </div>
                 </div>
             )}

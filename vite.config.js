@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: true, // Expose to local network (needed for mobile QR scanning)
-    allowedHosts: true, // Allow ngrok and other tunnels to connect without DNS rebinding errors
+    allowedHosts: true, // Allow Cloudflare Tunnel and other proxies to connect without DNS rebinding errors
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
