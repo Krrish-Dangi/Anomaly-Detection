@@ -1,10 +1,10 @@
-# 🛡️ SentinelAI
+# SentinelAI
 
 **SentinelAI** is an advanced, hybrid AI surveillance platform designed for real-time anomaly detection in retail and public environments. It fuses deep learning architectures to not only identify criminal or suspicious activities (e.g., shoplifting, assault, burglary) but also provide explainable, human-centric context like foot traffic and live skeletal tracking.
 
 Built as a full-stack solution, SentinelAI seamlessly bridges heavy Python-based AI models with a sleek, responsive React dashboard. It even includes a secure tunneling system to allow authorized mobile devices to act as instant wireless surveillance cameras from anywhere in the world.
 
-## ✨ Key Features
+## Key Features
 
 - **Hybrid AI Pipeline**: Combines **ResNet18 + LSTM** (trained on the UCF-Crime dataset) for temporal action recognition with **YOLOv8-Pose** for real-time human detection and skeletal heuristics.
 - **Mobile Camera Integration**: Scan a QR code on the dashboard to securely turn any smartphone into a live streaming IP camera via WebSockets and Cloudflare Tunnels.
@@ -14,7 +14,7 @@ Built as a full-stack solution, SentinelAI seamlessly bridges heavy Python-based
 
 ---
 
-## 🏗️ Project Structure
+## Project Structure
 
 The project is divided into two decoupled architectures:
 
@@ -38,7 +38,7 @@ SentinelAI/
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 Follow these instructions to run SentinelAI on your local machine.
 
@@ -104,11 +104,11 @@ Open your browser and navigate to `http://localhost:5173`.
 
 ---
 
-## 🛠️ Built With
+## Built With
 - **Frontend**: React, Vite, GSAP (Animations), Chart.js
 - **Backend**: FastAPI, Uvicorn, SQLite, Cloudflare `cloudflared`
 - **AI / ML**: PyTorch, Ultralytics (YOLOv8), OpenCV
 - **Cloud Infrastructure**: Supabase (PostgreSQL & Auth), Vercel (Frontend Hosting)
 
-## 📄 License
+## License
 This project is for educational and hackathon purposes.
