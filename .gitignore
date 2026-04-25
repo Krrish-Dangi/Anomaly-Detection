@@ -82,3 +82,6 @@ backend/*.pt
 
 # Video Clips
 backend/output/
+
+# Security (API Keys)
+src/lib/supabase.js
