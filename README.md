@@ -69,6 +69,11 @@ start.bat
 
 *(Note: The AI models require OpenCV, PyTorch, and Ultralytics. The first time you run the backend, YOLOv8 weights will automatically download. Additionally, a local SQLite database will be automatically created and seeded in `backend/data/surveillance.db` on your first startup — no manual database configuration required!)*
 
+### 3. Setup Persistent Cloudflare Tunnel (Important for Remote Access)
+By default, the backend spins up a temporary "Quick Tunnel" that changes its URL every time you restart. If you want a persistent, reliable URL so your mobile devices can securely connect without needing to update links constantly, you must configure a persistent Cloudflare Tunnel.
+
+**Please read the [Cloudflare Setup Guide](./cloudflare-setup-guide.md) to set this up.**
+
 ---
 
 ### Manual Installation (Mac/Linux)

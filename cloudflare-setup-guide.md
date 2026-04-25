@@ -106,12 +106,11 @@ You can now access your application securely via `https://app.yourdomain.com`.
 
 Since this project uses a hybrid networking model (APIs/WebSockets via Cloudflare, high-bandwidth Video via local LAN), remember to update your `.env` files appropriately:
 
-**Frontend (`.env`)**
+**Frontend (.env or Vercel)**
+Set the `VITE_API_URL` environment variable to your new tunnel URL so the React dashboard knows where to connect to the backend. The frontend will automatically derive the WebSocket URL from this variable.
+
 ```env
-VITE_API_URL=https://app.yourdomain.com/api
-VITE_WS_URL=wss://app.yourdomain.com/ws
-# Keep the local network IP for direct video fetching
-VITE_LOCAL_IP=http://192.168.X.X:8000 
+VITE_API_URL=https://app.yourdomain.com
 ```
 
 **Backend (`.env`)**
