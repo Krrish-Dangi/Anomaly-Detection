@@ -56,7 +56,8 @@ const EventHistory = () => {
 
         const fetchNetwork = async () => {
             try {
-                const res = await fetch('/api/system/network');
+                const apiBase = import.meta.env.VITE_API_URL || '';
+                const res = await fetch(`${apiBase}/api/system/network`);
                 if (res.ok) {
                     const data = await res.json();
                     if (data.local_ip) setLocalIp(data.local_ip);

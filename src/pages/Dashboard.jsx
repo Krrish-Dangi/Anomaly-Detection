@@ -407,7 +407,8 @@ const Dashboard = () => {
         fetchDashboardData();
 
         // Fetch network info for Cloudflare tunnel
-        fetch('/api/system/network')
+        const apiBase = import.meta.env.VITE_API_URL || '';
+        fetch(`${apiBase}/api/system/network`)
             .then(res => {
                 if (!res.ok) throw new Error("Network response was not ok");
                 return res.json();

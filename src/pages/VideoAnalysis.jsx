@@ -613,7 +613,7 @@ const VideoAnalysis = () => {
                         {/* Actual Video Element or Placeholder */}
                         {isProcessing ? (
                             <img
-                                src={`/api/analyze/${jobId}/mjpeg`}
+                                src={`${API_BASE}/api/analyze/${jobId}/mjpeg`}
                                 className="va-video-element"
                                 alt="Live AI Processing stream"
                                 style={{ objectFit: 'contain', backgroundColor: '#000' }}
