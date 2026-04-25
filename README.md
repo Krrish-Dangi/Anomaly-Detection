@@ -1,151 +1,114 @@
-# 🛡️ SentinelAI: Real-Time Smart Retail Surveillance Platform
+# 🛡️ SentinelAI
 
-SentinelAI is an intelligent, live-streaming surveillance dashboard designed for retail environments. Moving beyond traditional offline video analysis, this platform provides **zero-latency real-time threat detection**. It achieves this by turning any mobile device into a secure security camera that streams over WebSockets via dynamic Cloudflare Tunnels, directly feeding into a high-speed YOLO + DeepSORT tracking backend.
+**SentinelAI** is an advanced, hybrid AI surveillance platform designed for real-time anomaly detection in retail and public environments. It fuses deep learning architectures to not only identify criminal or suspicious activities (e.g., shoplifting, assault, burglary) but also provide explainable, human-centric context like foot traffic and live skeletal tracking.
 
----
+Built as a full-stack solution, SentinelAI seamlessly bridges heavy Python-based AI models with a sleek, responsive React dashboard. It even includes a secure tunneling system to allow authorized mobile devices to act as instant wireless surveillance cameras from anywhere in the world.
 
-## ✨ Core Features
+## ✨ Key Features
 
-- **🔴 Live Mobile Camera Streaming** — Use any smartphone as a surveillance camera. Connect instantly via QR Code and stream video frames in real-time over secure WebSockets.
-- **⚡ Zero-Latency AI Detection** — Powered by YOLO (You Only Look Once) and DeepSORT for persistent, high-speed person tracking and bounding box overlays across all frames.
-- **📊 Interactive Real-Time Dashboard** — Live updates to active threat counters, foot traffic graphs, and camera statuses directly fed by the detection engine.
-- **📁 Cloud Incident History** — Persistent incident logging and filtering powered by Supabase Authentication and database services.
-- **🌗 Stunning UI** — Dark/Light themes, smooth GSAP animations, native WebGL elements (via OGL), and an intuitive React architecture.
-
----
-
-## 🛠️ Complete Technology Stack
-
-The SentinelAI architecture is built for maximum speed and real-time responsiveness.
-
-### 1. Frontend (Presentation & Streaming Client)
-- **React 19 & Vite 7** — High-performance UI framework and build pipeline.
-- **GSAP & OGL** — Professional-grade scroll animations and WebGL visual effects.
-- **WebSocket Client** — For transmitting camera feeds from mobile clients and receiving live bounding-box updates.
-
-### 2. Backend API (Application & Routing)
-- **Python 3.11 & FastAPI** — Asynchronous backend server handling REST API queries and WebSocket connections.
-- **Uvicorn** — High-performance ASGI web server.
-- **Supabase** — Provides secure Email-based user Authentication and persistent, remote storage of event history.
-
-### 3. AI / Machine Learning Engine (Zero-Latency Core)
-- **YOLO (Object Detection)** — High-speed, single-pass neural network engineered for lightning-fast bounding box detection of people and objects.
-- **DeepSORT (Object Tracking)** — Ensures persistent identity tracking across frames so that movement, behavior, and paths are recognized continuously rather than flash-detected.
-- **OpenCV** — Real-time headless video frame manipulation.
-- **Cloudflare Tunnel (`cloudflared`)** — Secure public tunneling to expose local UI and WebSocket streams to mobile phones over HTTPS. Managed natively by the backend.
+- **Hybrid AI Pipeline**: Combines **ResNet18 + LSTM** (trained on the UCF-Crime dataset) for temporal action recognition with **YOLOv8-Pose** for real-time human detection and skeletal heuristics.
+- **Mobile Camera Integration**: Scan a QR code on the dashboard to securely turn any smartphone into a live streaming IP camera via WebSockets and Cloudflare Tunnels.
+- **Automated Incident Logging**: Suspicious events are automatically clipped into `.mp4` files and synced to a Supabase cloud database for historical review.
+- **Live Analytics**: Real-time foot traffic tracking, unique person counting, and anomaly confidence scoring.
+- **Zero-Config Remote Access**: The backend dynamically spins up a secure tunnel, exposing the API and WebSocket endpoints instantly without complex router configurations.
 
 ---
 
-## 🚀 Installation & Local Setup Guide
+## 🏗️ Project Structure
 
-We have decoupled the system into independent frontend and backend servers. Since this system relies on cloud databases and local port tunneling, ensure you configure the `.env` variables carefully.
+The project is divided into two decoupled architectures:
+
+```text
+SentinelAI/
+├── backend/                  # FastAPI / PyTorch Backend
+│   ├── ai/                   # AI weights and PyTorch model architectures
+│   ├── data/                 # Local SQLite DB and uploaded media
+│   ├── output/               # Generated anomaly `.mp4` clips
+│   ├── routers/              # API and WebSocket routes
+│   └── main.py               # Uvicorn entry point & Cloudflare tunnel manager
+│
+├── src/                      # React / Vite Frontend
+│   ├── components/           # Reusable UI widgets
+│   ├── pages/                # Dashboard, Event History, and Video Analysis
+│   ├── lib/                  # External services (Supabase auth)
+│   └── index.css             # Vanilla CSS styling
+│
+└── package.json              # Frontend dependencies
+```
+
+---
+
+## 🚀 Getting Started
+
+Follow these instructions to run SentinelAI on your local machine.
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/en) (v18 or higher)
-- [Python 3.11.x](https://www.python.org/downloads/release/python-3119/)
-- Git
+- **Node.js** (v16 or higher)
+- **Python** (v3.9 or higher)
+- **Git**
 
----
-
-### Step 1: External Service Setup (Important!)
-SentinelAI heavily relies on two external services for its real-time functionality. You **must** configure these before running the app.
-
-#### 1A. Install Cloudflare Tunnel (`cloudflared`)
-Cloudflare creates a secure tunnel from the public internet to your local machine, allowing mobile phones to access the UI and stream video frames securely to the AI engine over HTTPS.
-1. Download and install `cloudflared` for your OS: [Cloudflare Tunnel Downloads](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/).
-2. Ensure the `cloudflared` executable is added to your system's PATH. 
-3. *Note: There is no manual configuration required. The FastAPI backend automatically spawns the tunnel and captures the dynamic `.trycloudflare.com` URL on startup.*
-
-#### 1B. Create a Supabase Project (For Database & Auth)
-Supabase is used for user authentication and storing the persistent incident logs.
-1. Sign up at [Supabase](https://supabase.com/) and create a new Project.
-2. Once created, go to **Project Settings > API** to find your `Project URL` and `anon public key`.
-3. Go to **Authentication > Providers** and ensure **Email** authentication is enabled.
-4. *Note: As this is a decoupled system, the backend uses a local SQLite database for speed, but the frontend relies on Supabase for Auth.*
-
----
-
-### Step 2: Clone the repository
-
+### 1. Clone the Repository
 ```bash
 git clone https://github.com/Krrish-Dangi/Anomaly-Detection.git
 cd Anomaly-Detection
 ```
 
----
-
-### Step 3: Environment Variables (Locally Secured)
-Create a `.env` file in the **root directory** and add your Supabase credentials for Authentication and database access. Do **NOT** push this file to GitHub:
-```env
-VITE_SUPABASE_URL="YOUR_SUPABASE_PROJECT_URL"
-VITE_SUPABASE_ANON_KEY="YOUR_SUPABASE_ANON_KEY"
+### 2. Configure the Frontend (React)
+Install the required Node packages:
+```bash
+npm install
 ```
 
----
+Since the project uses Supabase for database and authentication, you need to provide your API keys. We have included an example file for you:
+1. Navigate to `src/lib/`.
+2. Rename `supabase.js.example` to `supabase.js`.
+3. Open `supabase.js` and paste your actual Supabase URL and Anon Key.
 
-### Step 4: Start the AI Backend & Tunnel
+### 3. Configure the Backend (Python)
+It is highly recommended to use a virtual environment for the Python dependencies.
+```bash
+cd backend
 
-The backend will automatically start the AI models and spawn the Cloudflare Tunnel in the background.
+# Create and activate a virtual environment (Windows)
+python -m venv venv
+venv\Scripts\activate
 
-1. **Start the AI Backend** (In a new terminal window):
-   ```bash
-   cd backend
-   
-   # Activate your virtual environment
-   # Windows: python -m venv venv; .\venv\Scripts\activate
-   # macOS/Linux: python3 -m venv venv; source venv/bin/activate
-   
-   # Install dependencies
-   pip install -r requirements.txt
-   
-   # Run the server
-   uvicorn main:app --host 0.0.0.0 --port 8000
-   ```
-   *The terminal console will print `✅ Tunnel acquired: https://<random>.trycloudflare.com` once the tunnel is active.*
-
-*(Note: Ensure your YOLO model weights are properly initialized inside `backend/ai/weights/` before starting the stream).*
-
----
-
-### Step 5: Start the Frontend UI
-
-With your backend running, launch the frontend dashboard. 
-
-1. **Start the Web UI** (In a second terminal window):
-   ```bash
-   # Make sure you are in the project root: Anomaly-Detection
-   npm install
-   npm run dev
-   ```
-*(Note for Windows Users: If you face script execution policy errors in PowerShell, use `cmd /c "npm run dev"`).*
-
-2. **Connect to the System:**
-   - Open your browser to the local URL (usually `http://localhost:5173`).
-   - Log in using your Supabase credentials.
-   - Use the **Connect Camera** interface on the dashboard to scan the securely generated QR code using your mobile phone. Your live stream will instantly appear on the dashboard!
-
----
-
-## 📂 System File Overview
-
-```text
-Anomaly-Detection/
-├── backend/                   # Python FastAPI Backend
-│   ├── ai/                    # YOLO & DeepSORT architecture & weights
-│   ├── routers/               # API endpoint grouping and WebSocket sockets
-│   └── main.py                # Server entry point
-├── src/                       # React Frontend
-│   ├── assets/                # Images & public media
-│   ├── components/            # UI components and Video Players
-│   ├── pages/                 # Full Page Renders (Dashboard, Settings)
-│   ├── lib/                   # Supabase client config & API callers
-│   └── App.jsx                # Application Router Map 
-├── .env                       # Secrets/Ngrok configs (Do Not Commit)
-├── package.json               # Node deps
-└── README.md                  # Unified system documentation
+# Install requirements
+pip install -r requirements.txt
 ```
 
+*(Note: The AI models require OpenCV, PyTorch, and Ultralytics. The first time you run the backend, YOLOv8 weights will automatically download).*
+
+### 4. Run the Application
+
+SentinelAI requires both the frontend and backend to be running simultaneously.
+
+**Start the Backend (Terminal 1):**
+```bash
+cd backend
+# Make sure your virtual environment is activated!
+uvicorn main:app --reload --port 8000
+```
+*When the backend starts, it will automatically spin up a secure Cloudflare tunnel and print a URL like `https://random-words.trycloudflare.com` to your console.*
+
+**Start the Frontend (Terminal 2):**
+```bash
+# From the root of the project
+npm run dev
+```
+
+### 5. Access the Dashboard
+Open your browser and navigate to `http://localhost:5173`. 
+- **Local Testing:** The local frontend will automatically connect to your local backend.
+- **Mobile Streaming:** Click "Connect Camera", scan the QR code with your phone, and start streaming!
+
 ---
 
-## ⚖️ License
-Designed and developed for academic/research purposes as part of a DTI (Design Thinking & Innovation) project. Not licensed for commercial use.
+## 🛠️ Built With
+- **Frontend**: React, Vite, GSAP (Animations), Chart.js
+- **Backend**: FastAPI, Uvicorn, SQLite, Cloudflare `cloudflared`
+- **AI / ML**: PyTorch, Ultralytics (YOLOv8), OpenCV
+- **Cloud Infrastructure**: Supabase (PostgreSQL & Auth), Vercel (Frontend Hosting)
+
+## 📄 License
+This project is for educational and hackathon purposes.
