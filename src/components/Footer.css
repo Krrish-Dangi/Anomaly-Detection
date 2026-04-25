@@ -1,7 +1,7 @@
 .footer {
     padding: 60px 0 30px;
     border-top: 1px solid var(--border-color);
-    background: rgba(10, 14, 23, 0.8);
+    background: var(--glass-bg);
 }
 
 .footer-inner {

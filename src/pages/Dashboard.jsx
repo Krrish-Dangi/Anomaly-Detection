@@ -32,6 +32,7 @@ const Dashboard = () => {
     // ─── Live Crime Detection State ───
     const [liveThreatCount, setLiveThreatCount] = useState(0);
     const [liveAlerts, setLiveAlerts] = useState([]); // [{ucf_class, confidence, camera_id, timestamp, message}]
+    const [unreadCount, setUnreadCount] = useState(0);
     const [showAlertToast, setShowAlertToast] = useState(false);
     const [latestCrimeAlert, setLatestCrimeAlert] = useState(null);
     const alertTimeoutRef = useRef(null);
@@ -203,13 +204,12 @@ const Dashboard = () => {
                         setLivePersonCount(count);
                         setLiveTotalUnique(data.total_unique || 0);
 
-                        // Update foot traffic chart with live person count
                         setFootTraffic(prev => {
                             const now = new Date();
                             const currentHour = now.getHours();
-                            const newValues = prev.values && prev.values.length === 24
-                                ? [...prev.values]
-                                : Array(24).fill(0);
+                            const newValues = prev.rawValues && prev.rawValues.length === 24
+                                ? [...prev.rawValues]
+                                : (prev.values && prev.values.length === 24 ? [...prev.values] : Array(24).fill(0));
                             // Use max person count seen in this hour bucket
                             newValues[currentHour] = Math.max(newValues[currentHour], count);
                             const maxVal = Math.max(...newValues, 1);
@@ -217,6 +217,7 @@ const Dashboard = () => {
                             return {
                                 labels: Array(24).fill('').map((_, i) => `${i.toString().padStart(2, '0')}:00`),
                                 values: normalized,
+                                rawValues: newValues,
                             };
                         });
 
@@ -273,6 +274,7 @@ const Dashboard = () => {
 
                         // Add to live alerts list
                         setLiveAlerts(prev => [data.alert, ...prev].slice(0, 50));
+                        setUnreadCount(prev => prev + 1);
 
                         // Show toast notification
                         setLatestCrimeAlert(data.alert);
@@ -310,7 +312,9 @@ const Dashboard = () => {
 
                         // Update chart dynamically
                         setFootTraffic(prev => {
-                            const newValues = prev.values && prev.values.length > 0 ? [...prev.values] : Array(24).fill(0);
+                            const newValues = prev.rawValues && prev.rawValues.length === 24 
+                                ? [...prev.rawValues] 
+                                : (prev.values && prev.values.length === 24 ? [...prev.values] : Array(24).fill(0));
                             const currentHour = new Date().getHours();
                             newValues[currentHour] = (newValues[currentHour] || 0) + 1;
                             
@@ -320,7 +324,8 @@ const Dashboard = () => {
                             
                             return {
                                 labels: Array(24).fill('').map((_, i) => `${i.toString().padStart(2, '0')}:00`),
-                                values: normalized
+                                values: normalized,
+                                rawValues: newValues
                             };
                         });
                     }
@@ -424,6 +429,7 @@ const Dashboard = () => {
         const canvas = chartRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
+        let hoverIndex = -1;
 
         const drawChart = () => {
             const parent = canvas.parentElement;
@@ -474,17 +480,109 @@ const Dashboard = () => {
             }
             ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2.5; ctx.stroke();
 
+            // === HOVER LINE LOGIC ===
+            if (hoverIndex >= 0 && hoverIndex < points.length) {
+                const hx = getX(hoverIndex);
+                const hy = getY(points[hoverIndex]);
+                
+                // Draw vertical line
+                ctx.beginPath();
+                ctx.moveTo(hx, padT);
+                ctx.lineTo(hx, padT + ch);
+                ctx.strokeStyle = 'rgba(0, 212, 255, 0.5)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5, 5]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                // Draw point
+                ctx.beginPath();
+                ctx.arc(hx, hy, 4, 0, Math.PI * 2);
+                ctx.fillStyle = '#0f172a'; // match background slightly or dark
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#00d4ff';
+                ctx.stroke();
+
+                // Draw tooltip
+                const allLabels = footTraffic.labels && footTraffic.labels.length > 0 ? footTraffic.labels : Array(24).fill('').map((_, i) => `${i.toString().padStart(2, '0')}:00`);
+                const labelText = allLabels[hoverIndex];
+                
+                // Use raw value if available, otherwise just use percentage
+                let valText = '';
+                if (footTraffic.rawValues && footTraffic.rawValues.length > hoverIndex) {
+                    valText = `Count: ${footTraffic.rawValues[hoverIndex]}`;
+                } else {
+                    valText = `Value: ${(points[hoverIndex] * 100).toFixed(1)}%`;
+                }
+
+                const text = `${labelText} - ${valText}`;
+                
+                ctx.font = '12px Inter, sans-serif';
+                const textWidth = ctx.measureText(text).width;
+                const tooltipX = hx + textWidth + 10 > w ? hx - textWidth - 10 : hx + 10;
+                const tooltipY = Math.max(padT + 14, hy - 10);
+                
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+                ctx.beginPath();
+                ctx.roundRect(tooltipX - 6, tooltipY - 16, textWidth + 12, 24, 4);
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(0, 212, 255, 0.3)';
+                ctx.stroke();
+
+                ctx.fillStyle = '#fff';
+                ctx.textAlign = 'left';
+                ctx.fillText(text, tooltipX, tooltipY);
+            }
+
             const xLabels = footTraffic.labels && footTraffic.labels.length > 0 ? footTraffic.labels : ['00:00', '08:00', '16:00', '23:50'];
             ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '12px Inter, sans-serif'; ctx.textAlign = 'center';
             xLabels.forEach((l, i) => ctx.fillText(l, padL + (i / (xLabels.length - 1)) * cw, h - 12));
         };
+
+        const handleMouseMove = (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const w = rect.width;
+            const padL = 50, padR = 20;
+            const cw = w - padL - padR;
+            
+            let points = footTraffic.values && footTraffic.values.length > 0 ? footTraffic.values : Array(24).fill(0);
+            
+            if (x >= padL - 10 && x <= w - padR + 10) {
+                // Clamp ratio between 0 and 1
+                const ratio = Math.max(0, Math.min(1, (x - padL) / cw));
+                const index = Math.round(ratio * (points.length - 1));
+                if (hoverIndex !== index) {
+                    hoverIndex = index;
+                    drawChart();
+                }
+            } else {
+                if (hoverIndex !== -1) {
+                    hoverIndex = -1;
+                    drawChart();
+                }
+            }
+        };
+
+        const handleMouseLeave = () => {
+            hoverIndex = -1;
+            drawChart();
+        };
+
+        canvas.addEventListener('mousemove', handleMouseMove);
+        canvas.addEventListener('mouseleave', handleMouseLeave);
 
         const observer = new ResizeObserver(drawChart);
         if (canvas.parentElement) observer.observe(canvas.parentElement);
         
         drawChart();
 
-        return () => observer.disconnect();
+        return () => {
+            observer.disconnect();
+            canvas.removeEventListener('mousemove', handleMouseMove);
+            canvas.removeEventListener('mouseleave', handleMouseLeave);
+        };
     }, [footTraffic]);
 
     // ─── Entrance animations ───
@@ -507,7 +605,13 @@ const Dashboard = () => {
     ];
 
     return (
-        <DashboardLayout title="Dashboard" subtitle="Real-time monitoring and threat detection active.">
+        <DashboardLayout 
+            title="Dashboard" 
+            subtitle="Real-time monitoring and threat detection active."
+            alerts={liveAlerts}
+            unreadCount={unreadCount}
+            onClearAlerts={() => setUnreadCount(0)}
+        >
             <div className="dash-stats-row">
                 {liveStatsData.map((stat, idx) => (
                     <div className="dash-stat-card" key={stat.label}>

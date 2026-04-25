@@ -99,7 +99,7 @@ The backend will automatically start the AI models and spawn the Cloudflare Tunn
    pip install -r requirements.txt
    
    # Run the server
-   uvicorn main:app --reload --port 8000
+   uvicorn main:app --host 0.0.0.0 --port 8000
    ```
    *The terminal console will print `✅ Tunnel acquired: https://<random>.trycloudflare.com` once the tunnel is active.*
 

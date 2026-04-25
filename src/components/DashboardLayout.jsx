@@ -1,3 +1,4 @@
+import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import './DashboardLayout.css';
@@ -35,10 +36,22 @@ const navItems = [
     },
 ];
 
-const DashboardLayout = ({ children, title, subtitle }) => {
+const DashboardLayout = ({ children, title, subtitle, alerts = [], unreadCount = 0, onClearAlerts }) => {
     const navigate = useNavigate();
     const location = useLocation();
     const { profile, isAuthenticated, signOut } = useAuth();
+    const [showNotif, setShowNotif] = useState(false);
+    const notifRef = useRef(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (notifRef.current && !notifRef.current.contains(event.target)) {
+                setShowNotif(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     const displayName = profile?.full_name || 'Guest';
     const displayEmail = profile?.email || 'guest@gmail.com';
@@ -118,12 +131,55 @@ const DashboardLayout = ({ children, title, subtitle }) => {
                             <span className="dash-live-dot"></span>
                             SYSTEM LIVE
                         </div>
-                        <button className="dash-notif-btn" aria-label="Notifications">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                            </svg>
-                            <span className="dash-notif-dot"></span>
-                        </button>
+                        <div className="dash-notif-container" ref={notifRef}>
+                            <button 
+                                className={`dash-notif-btn ${showNotif ? 'active' : ''}`} 
+                                aria-label="Notifications"
+                                onClick={() => {
+                                    setShowNotif(!showNotif);
+                                    if (!showNotif && onClearAlerts) onClearAlerts();
+                                }}
+                            >
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                                </svg>
+                                {unreadCount > 0 && (
+                                    <span className="dash-notif-badge">{unreadCount > 9 ? '9+' : unreadCount}</span>
+                                )}
+                            </button>
+                            
+                            {showNotif && (
+                                <div className="dash-notif-dropdown">
+                                    <div className="dash-notif-header">
+                                        <h4>Live Alerts</h4>
+                                        <button className="dash-notif-clear" onClick={() => {
+                                            if(onClearAlerts) onClearAlerts();
+                                        }}>Clear</button>
+                                    </div>
+                                    <div className="dash-notif-list">
+                                        {alerts && alerts.length > 0 ? (
+                                            alerts.map((alert, idx) => (
+                                                <div className="dash-notif-item" key={idx}>
+                                                    <div className="dash-notif-icon">
+                                                        {alert.severity_level === 'HIGH' ? '🔴' : alert.severity_level === 'MEDIUM' ? '🟡' : '🟢'}
+                                                    </div>
+                                                    <div className="dash-notif-content">
+                                                        <div className="dash-notif-title">
+                                                            {alert.ucf_class || alert.type || 'Alert'}
+                                                        </div>
+                                                        <div className="dash-notif-meta">
+                                                            {alert.camera_id} • {alert.confidence}% Conf.
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="dash-notif-empty">No recent alerts</div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </header>
                 {children}
