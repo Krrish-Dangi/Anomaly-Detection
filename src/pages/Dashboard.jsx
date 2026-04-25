@@ -14,6 +14,22 @@ const generateCameraId = () => {
     return `CAM-${id}`;
 };
 
+// Helper to construct WS URLs dynamically for Vercel
+const getWsUrl = (path) => {
+    const backendUrl = import.meta.env.VITE_API_URL;
+    if (backendUrl) {
+        try {
+            const url = new URL(backendUrl);
+            const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+            return `${protocol}//${url.host}${path}`;
+        } catch (e) {
+            console.error("Invalid VITE_API_URL", e);
+        }
+    }
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}${path}`;
+};
+
 const Dashboard = () => {
     const chartRef = useRef(null);
     const [showConnectModal, setShowConnectModal] = useState(false);
@@ -91,8 +107,7 @@ const Dashboard = () => {
                 localStreamRefs.current[camId] = stream;
 
                 // Connect WebSocket to ingest endpoint
-                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const wsUrl = `${protocol}//${window.location.host}/ws/ingest/${camId}`;
+                const wsUrl = getWsUrl(`/ws/ingest/${camId}`);
                 const ws = new WebSocket(wsUrl);
                 localWsRefs.current[camId] = ws;
 
@@ -182,8 +197,7 @@ const Dashboard = () => {
         const maxRetries = 10;
 
         const connect = () => {
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/ws/live/${camId}`;
+            const wsUrl = getWsUrl(`/ws/live/${camId}`);
 
             const ws = new WebSocket(wsUrl);
 
