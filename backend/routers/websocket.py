@@ -167,8 +167,12 @@ def _save_clip_to_disk(camera_id: str, event_id: str, frames: list, anomaly_coun
         out_path = str(cam_dir / f"{event_id}.mp4")
 
         h, w = frames[0].shape[:2]
+        # Try avc1 first (browser-compatible H.264), fall back to mp4v
         fourcc = cv2.VideoWriter_fourcc(*'avc1')
         writer = cv2.VideoWriter(out_path, fourcc, 7.5, (w, h))
+        if not writer.isOpened():
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            writer = cv2.VideoWriter(out_path, fourcc, 7.5, (w, h))
         if not writer.isOpened():
             print(f"[CLIP] ❌ Failed to open VideoWriter for {out_path}")
             return

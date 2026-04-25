@@ -237,8 +237,12 @@ def _extract_clip_from_video(video_path: str, event_id: str, start_frame: int, e
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = str(out_dir / f"{event_id}.mp4")
 
+        # Try avc1 first (browser-compatible H.264), fall back to mp4v
         fourcc = cv2.VideoWriter_fourcc(*'avc1')
         writer = cv2.VideoWriter(out_path, fourcc, fps, (w, h))
+        if not writer.isOpened():
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            writer = cv2.VideoWriter(out_path, fourcc, fps, (w, h))
         if not writer.isOpened():
             cap.release()
             print(f"[CLIP] ❌ Cannot open VideoWriter for {out_path}")
