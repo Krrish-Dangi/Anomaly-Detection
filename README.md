@@ -77,7 +77,7 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-*(Note: The AI models require OpenCV, PyTorch, and Ultralytics. The first time you run the backend, YOLOv8 weights will automatically download).*
+*(Note: The AI models require OpenCV, PyTorch, and Ultralytics. The first time you run the backend, YOLOv8 weights will automatically download. Additionally, a local SQLite database will be automatically created and seeded in `backend/data/surveillance.db` on your first startup — no manual database configuration required!)*
 
 ### 4. Run the Application
 
