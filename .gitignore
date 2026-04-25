@@ -78,3 +78,7 @@ backend/data/uploads/*
 backend/ai/weights/*.pth
 backend/ai/weights/*.pt
 backend/ai/weights/*.onnx
+backend/*.pt
+
+# Video Clips
+backend/output/
