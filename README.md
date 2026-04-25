@@ -53,54 +53,43 @@ git clone https://github.com/Krrish-Dangi/Anomaly-Detection.git
 cd Anomaly-Detection
 ```
 
-### 2. Configure the Frontend (React)
-Install the required Node packages:
-```bash
-npm install
+### 2. Run the 1-Click Setup (Windows)
+We have included an automated setup script that handles everything for you. Simply double-click **`start.bat`** from your file explorer, or run it in your terminal:
+```cmd
+start.bat
 ```
 
-Since the project uses Supabase for database and authentication, you need to provide your API keys. We have included an example file for you:
-1. Navigate to `src/lib/`.
-2. Rename `supabase.js.example` to `supabase.js`.
-3. Open `supabase.js` and paste your actual Supabase URL and Anon Key.
-
-### 3. Configure the Backend (Python)
-It is highly recommended to use a virtual environment for the Python dependencies.
-```bash
-cd backend
-
-# Create and activate a virtual environment (Windows)
-python -m venv venv
-venv\Scripts\activate
-
-# Install requirements
-pip install -r requirements.txt
-```
+**What `start.bat` does automatically:**
+1. Checks if Python and Node.js are installed.
+2. Prompts you to configure your Supabase API keys if you haven't yet.
+3. Creates a Python virtual environment and installs all AI backend dependencies.
+4. Installs all React frontend packages.
+5. Launches both the backend and frontend servers.
+6. Opens the dashboard directly in your default web browser!
 
 *(Note: The AI models require OpenCV, PyTorch, and Ultralytics. The first time you run the backend, YOLOv8 weights will automatically download. Additionally, a local SQLite database will be automatically created and seeded in `backend/data/surveillance.db` on your first startup — no manual database configuration required!)*
 
-### 4. Run the Application
+---
 
-SentinelAI requires both the frontend and backend to be running simultaneously.
+### Manual Installation (Mac/Linux)
 
-**Start the Backend (Terminal 1):**
+If you are not on Windows or prefer to run it manually:
+
+**1. Setup Frontend:**
 ```bash
-cd backend
-# Make sure your virtual environment is activated!
-uvicorn main:app --reload --port 8000
-```
-*When the backend starts, it will automatically spin up a secure Cloudflare tunnel and print a URL like `https://random-words.trycloudflare.com` to your console.*
-
-**Start the Frontend (Terminal 2):**
-```bash
-# From the root of the project
+npm install
+# Rename src/lib/supabase.js.example to supabase.js and add your keys
 npm run dev
 ```
 
-### 5. Access the Dashboard
-Open your browser and navigate to `http://localhost:5173`. 
-- **Local Testing:** The local frontend will automatically connect to your local backend.
-- **Mobile Streaming:** Click "Connect Camera", scan the QR code with your phone, and start streaming!
+**2. Setup Backend (New Terminal):**
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # On Mac/Linux
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+```
 
 ---
 
